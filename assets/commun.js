@@ -218,10 +218,10 @@ function filtrer(f) {
    ============================================================ */
 const PAGES = [
   ["index.html", "Accueil"],
-  ["salaires.html", "Ce que ça paie"],
-  ["exigences.html", "Ce qu'on vous demande"],
-  ["recruteurs.html", "Qui recrute"],
-  ["mouvement.html", "Le marché bouge"],
+  ["salaires.html", "Rémunération"],
+  ["exigences.html", "Missions"],
+  ["recruteurs.html", "Qui recrute ?"],
+  ["mouvement.html", "Les évolutions"],
 ];
 // Chemins relatifs partout : le site vit dans un sous-dossier (/metier/) sur GitHub Pages.
 const PAGE_ICI = (location.pathname.split("/").pop() || "index.html");
