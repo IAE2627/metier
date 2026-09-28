@@ -9,7 +9,7 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet.markercluster@1.5.3/dist/MarkerCluster.min.css">
 <script src="https://cdn.jsdelivr.net/npm/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-<link rel="stylesheet" href="assets/commun.css?v=3">
+<link rel="stylesheet" href="assets/commun.css?v=4">
 </head>
 <body>
 <main>
@@ -34,7 +34,7 @@
       <button data-vue="paris">Île-de-France</button>
       <button data-fond="gris" class="actif">Fond gris</button>
       <button data-fond="osm">Fond OpenStreetMap</button>
-      <span class="legende"><span><i style="background:#e0197d"></i>cœur marketing</span><span><i style="background:#ff6a00"></i>digital</span><span><i style="background:#8e8e93"></i>frontière</span></span>
+      <span class="legende" id="legende-carte"></span>
     </div>
     <div id="map"></div>
     <p class="note" id="note-carte"></p></div>
@@ -56,7 +56,7 @@
   <footer id="pied"></footer>
 </main>
 
-<script src="assets/commun.js?v=3"></script>
+<script src="assets/commun.js?v=4"></script>
 <script>
 /* ============ Accueil : chiffres, carte, départements, contrats ============ */
 let carte, calque;
@@ -82,13 +82,15 @@ function rendre(offres, D) {
   document.getElementById("chiffres").innerHTML = tuiles.map(([v, l]) => `<div class="chiffre"><b>${v}</b><span>${l}</span></div>`).join("");
 
   /* ---- Carte + départements + contrats ---- */
+  // Légende : les groupes de l'onglet affiché, dans leur couleur.
+  document.getElementById("legende-carte").innerHTML = Commun.onglet.groupes.map(g =>
+    `<span><i style="background:${couleurGroupe(g.nom)}"></i>${g.nom.toLowerCase()}</span>`).join("");
   calque.clearLayers();
   let places = 0;
   for (const o of offres) {
     if (o.lat == null) continue;
     places++;
-    const g = lib[o.rome] && lib[o.rome].groupe;
-    const m = L.circleMarker([o.lat, o.lon], { radius: 6, color: "#fff", weight: 1, fillColor: COULEURS[g] || couleur, fillOpacity: o.prec === "departement" ? .45 : .9 });
+    const m = L.circleMarker([o.lat, o.lon], { radius: 6, color: "#fff", weight: 1, fillColor: couleurMetier(o.rome), fillOpacity: o.prec === "departement" ? .45 : .9 });
     m.bindPopup(`<b>${o.intitule}</b>${o.entreprise || "employeur non précisé"} · ${o.lieu || ""}<br>${libContratOffre(o)}${salaireCourt(o) ? " · " + salaireCourt(o) : ""}<br><span style="color:#888">${(lib[o.rome] && lib[o.rome].libelle) || o.rome} · ${libNiv(niv(o))}${o.prec !== "offre" ? " · position : " + o.prec : ""}</span>`, { closeButton: false });
     m.on("mouseover", function () { this.openPopup(); });
     m.on("mouseout", function () { this.closePopup(); });

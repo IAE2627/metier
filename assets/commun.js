@@ -60,6 +60,8 @@ const age = o => { const jour = Date.parse(D.date), t = Date.parse(o.date); retu
 
 const couleur = "#e0197d", pale = "rgba(224,25,125,.25)";
 const COULEURS = { Marketing: "#e0197d", Digital: "#ff6a00", Frontière: "#8e8e93" };
+// Les groupes des autres onglets prennent ces teintes, dans l'ordre où leur onglet les liste.
+const TEINTES_GROUPES = ["#e0197d", "#ff6a00", "#1a9e77", "#7b3fe4", "#8e8e93"];
 // Palette des niveaux : du clair au foncé, assistant → directeur, « autre » en gris. Valable sur toute la page.
 const COUL_NIV = { assistant: "#f9b8d8", charge: "#ee6aab", responsable: "#c2185b", directeur: "#7a0f45", autre: "#b4b4bc" };
 // Sur ces trois teintes claires, le texte blanc n'est pas lisible : on écrit en encre foncée.
@@ -203,6 +205,14 @@ function flottantes(id, lignes) {
 /* ============================================================
    3) ÉTAT DES FILTRES
    ============================================================ */
+/* Couleur d'un groupe de l'onglet affiché, et d'un métier selon son groupe dans cet onglet. */
+function couleurGroupe(g) {
+  if (COULEURS[g]) return COULEURS[g];
+  const i = Commun.onglet ? Commun.onglet.groupes.findIndex(x => x.nom === g) : -1;
+  return i >= 0 ? TEINTES_GROUPES[i % TEINTES_GROUPES.length] : couleur;
+}
+const couleurMetier = code => couleurGroupe(Commun.groupeDe[code]);
+
 const cochees = sel => new Set([...document.querySelectorAll(sel + " input:checked")].map(i => i.value));
 function etatFiltres() {
   return { metiers: cochees("#metiers"), contrats: cochees("#f-contrats"), niveaux: cochees("#f-niveaux") };
@@ -255,7 +265,9 @@ function poserNavEtFiltres() {
     `<a href="${url}"${url === PAGE_ICI ? ' class="ici" aria-current="page"' : ""}>${lib}</a>`).join("") + `</nav>`;
 
   const f = document.getElementById("filtres-ici");
-  if (f) f.outerHTML = (PAGE_ICI === "index.html"
+  // Les onglets restent visibles au-dessus du panneau, même replié : ils disent quels métiers on lit.
+  if (f) f.outerHTML = `<div class="onglets" id="onglets" role="tablist" aria-label="Familles de métiers" hidden></div>`
+    + (PAGE_ICI === "index.html"
     // Accueil : le panneau est déplié, c'est le point de départ.
     ? `<div class="carte">${HTML_FILTRES}</div>`
     // Ailleurs : replié, on vient lire une page, pas refaire ses filtres.
@@ -271,12 +283,100 @@ function poserNavEtFiltres() {
 }
 
 /* ============================================================
-   5) CHARGEMENT ET BOUCLE DE RENDU
+   5) ONGLETS : une famille de métiers par onglet
+   Chaque onglet a ses groupes, ses métiers et ses propres filtres
+   mémorisés ; changer d'onglet reconstruit le panneau et redessine
+   la page, sans la recharger.
+   ============================================================ */
+
+/* Les onglets du resume.json ; un ancien fichier sans onglets en donne un seul, bâti sur les groupes. */
+function ongletsDe(d) {
+  if (Array.isArray(d.onglets) && d.onglets.length) return d.onglets;
+  const groupes = [...new Set(d.metiers.map(m => m.groupe))];
+  return [{ id: "tous", titre: "Tous les métiers", groupes: groupes.map(g => {
+    const ms = d.metiers.filter(m => m.groupe === g);
+    return { nom: g, codes: ms.map(m => m.code), coche: ms.some(m => m.coche) };
+  }) }];
+}
+
+/* Filtres mémorisés : { onglet, par_onglet: { id: { metiers, contrats, niveaux } } }.
+   L'ancien format (un seul jeu de filtres) est repris pour le premier onglet. */
+function lireMemo(onglets) {
+  let m = null;
+  try { m = JSON.parse(localStorage.getItem("metiers-filtres")); } catch (e) {}
+  if (!m) { try { const vieux = JSON.parse(localStorage.getItem("metiers-coches")); if (Array.isArray(vieux)) m = { metiers: vieux }; } catch (e) {} }
+  if (m && m.par_onglet) return m;
+  return { onglet: onglets[0].id, par_onglet: m ? { [onglets[0].id]: m } : {} };
+}
+
+/* Cases de groupe : cochée si tout le groupe l'est, état intermédiaire s'il l'est en partie. */
+function majGroupes() {
+  document.querySelectorAll("[data-groupe-case]").forEach(c => {
+    const cases = [...document.querySelectorAll(`#metiers input[data-groupe="${c.dataset.groupeCase}"]`)];
+    const k = cases.filter(i => i.checked).length;
+    c.checked = cases.length > 0 && k === cases.length; c.indeterminate = k > 0 && k < cases.length;
+  });
+}
+
+/* Affiche un onglet : bouton actif, métiers de ses groupes, et ses filtres mémorisés. */
+function poserOnglet(id) {
+  const o = Commun.onglets.find(x => x.id === id) || Commun.onglets[0];
+  Commun.onglet = o;
+  Commun.groupeDe = {};
+  o.groupes.forEach(g => g.codes.forEach(c => { Commun.groupeDe[c] = g.nom; }));
+  Commun.memo.onglet = o.id;
+  document.querySelectorAll("#onglets [role=tab]").forEach(b => {
+    const ici = b.dataset.onglet === o.id;
+    b.setAttribute("aria-selected", ici); b.tabIndex = ici ? 0 : -1;
+  });
+
+  const memo = Commun.memo.par_onglet[o.id] || {};
+  const memoA = (cle, defaut) => Array.isArray(memo[cle]) ? memo[cle] : defaut;
+  const memoM = memoA("metiers", null);
+  document.getElementById("metiers").innerHTML = o.groupes.map(g => `<h4 style="color:${couleurGroupe(g.nom)}">${g.nom}</h4>` +
+    g.codes.map(c => { const m = Commun.lib[c] || { libelle: c, actives: 0 };
+      return `<label><input type="checkbox" value="${c}" data-groupe="${g.nom}" ${(memoM ? memoM.includes(c) : g.coche) ? "checked" : ""}> ${m.libelle} <small>${c} · ${m.actives}</small></label>`; }).join("")).join("");
+  document.getElementById("groupes").innerHTML = o.groupes.map(g =>
+    `<label style="color:${couleurGroupe(g.nom)}"><input type="checkbox" data-groupe-case="${g.nom}"> ${g.nom}</label>`).join("");
+  majGroupes();
+
+  const memoC = memoA("contrats", CONTRATS.map(x => x[0])), memoN = memoA("niveaux", NIVEAUX.map(x => x[0]));
+  document.querySelectorAll("#f-contrats input").forEach(i => { i.checked = memoC.includes(i.value); });
+  document.querySelectorAll("#f-niveaux input").forEach(i => { i.checked = memoN.includes(i.value); });
+}
+
+/* La barre d'onglets, avec le nombre d'offres actives de chacun ; masquée s'il n'y en a qu'un. */
+function poserBarreOnglets() {
+  const barre = document.getElementById("onglets");
+  if (!barre) return;
+  barre.innerHTML = Commun.onglets.map(o => {
+    const codes = new Set(o.groupes.flatMap(g => g.codes));
+    const n = D.offres.filter(x => codes.has(x.rome)).length;
+    return `<button type="button" role="tab" data-onglet="${o.id}" aria-selected="false">${o.titre} <small>${n}</small></button>`;
+  }).join("");
+  barre.hidden = Commun.onglets.length < 2;
+  const choisir = b => { if (b && b.dataset.onglet !== Commun.onglet.id) { poserOnglet(b.dataset.onglet); Commun.rafraichir(); } };
+  barre.addEventListener("click", e => choisir(e.target.closest("[role=tab]")));
+  // Flèches gauche/droite : on passe d'un onglet au voisin, comme dans tout jeu d'onglets.
+  barre.addEventListener("keydown", e => {
+    if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+    const bs = [...barre.querySelectorAll("[role=tab]")], i = bs.findIndex(b => b.dataset.onglet === Commun.onglet.id);
+    const b = bs[(i + (e.key === "ArrowRight" ? 1 : bs.length - 1)) % bs.length];
+    b.focus(); choisir(b);
+  });
+}
+
+/* ============================================================
+   6) CHARGEMENT ET BOUCLE DE RENDU
    ============================================================ */
 const Commun = {
   D: null,          // les données, une fois chargées
   f: null,          // l'état des filtres au dernier rendu
   lib: {},          // code ROME -> { libelle, groupe, … }
+  onglets: [],      // les onglets du resume.json
+  onglet: null,     // l'onglet affiché : { id, titre, groupes }
+  groupeDe: {},     // code ROME -> nom de son groupe dans l'onglet affiché
+  memo: null,       // les filtres mémorisés, par onglet
   rendre: null,     // le dessinateur de la page
 
   /* Tout ce qui est commun à chaque rendu : compteurs des cases, ligne de
@@ -286,21 +386,23 @@ const Commun = {
     Commun.f = f;
     const parMetier = D.offres.filter(o => f.metiers.has(o.rome));           // base des compteurs de filtres
     const offres = filtrer(f);
-    const n = offres.length, total = D.offres.length;
+    const n = offres.length, total = D.offres.filter(o => o.rome in Commun.groupeDe).length;
+    const titre = Commun.onglets.length > 1 ? ` « ${Commun.onglet.titre} »` : "";
 
     // Compteurs dans les cases de filtre + ligne de synthèse
     CONTRATS.forEach(([k]) => { const e = document.getElementById("nb-c-" + k); if (e) e.textContent = parMetier.filter(o => familleContrat(o) === k).length; });
     NIVEAUX.forEach(([k]) => { const e = document.getElementById("nb-n-" + k); if (e) e.textContent = parMetier.filter(o => niv(o) === k).length; });
-    document.getElementById("compte").innerHTML = `<b>${n}</b> offre${n > 1 ? "s" : ""} sélectionnée${n > 1 ? "s" : ""} sur ${total} — ${f.metiers.size} métier${f.metiers.size > 1 ? "s" : ""} coché${f.metiers.size > 1 ? "s" : ""}.`;
+    document.getElementById("compte").innerHTML = `<b>${n}</b> offre${n > 1 ? "s" : ""} sélectionnée${n > 1 ? "s" : ""} sur ${total}${titre ? " de l'onglet" + titre : ""} — ${f.metiers.size} métier${f.metiers.size > 1 ? "s" : ""} coché${f.metiers.size > 1 ? "s" : ""}.`;
     document.getElementById("aucune").hidden = n > 0;
     const resume = document.getElementById("resume-filtres");
-    if (resume) resume.textContent = `Filtres (${f.metiers.size} métier${f.metiers.size > 1 ? "s" : ""}, ${n} offre${n > 1 ? "s" : ""})`;
+    if (resume) resume.textContent = `Filtres${titre} (${f.metiers.size} métier${f.metiers.size > 1 ? "s" : ""}, ${n} offre${n > 1 ? "s" : ""})`;
     // Plus rien de sélectionné : le message dit « recochez un métier », le panneau replié
     // doit donc s'ouvrir. Sinon la page réclame une action dont elle cache les cases.
     if (n === 0) { const d = document.querySelector("details.carte"); if (d) d.open = true; }
 
-    // Mémorisation des trois filtres ensemble : ils suivent d'une page à l'autre.
-    try { localStorage.setItem("metiers-filtres", JSON.stringify({ metiers: [...f.metiers], contrats: [...f.contrats], niveaux: [...f.niveaux] })); } catch (e) {}
+    // Mémorisation des trois filtres de l'onglet, et de l'onglet lui-même : ils suivent d'une page à l'autre.
+    Commun.memo.par_onglet[Commun.onglet.id] = { metiers: [...f.metiers], contrats: [...f.contrats], niveaux: [...f.niveaux] };
+    try { localStorage.setItem("metiers-filtres", JSON.stringify(Commun.memo)); } catch (e) {}
 
     Commun.rendre(offres, D);
   },
@@ -323,46 +425,33 @@ const Commun = {
       if (sous) sous.innerHTML =
         `${d.source} · ${d.requete} · extraction du <b>${dateFr(d.date)}</b> · ${d.offres.length} offres actives, ${d.versions_conservees} versions d'annonces conservées`;
 
-      let memo = null;
-      try { memo = JSON.parse(localStorage.getItem("metiers-filtres")); } catch (e) {}
-      if (!memo) { try { const vieux = JSON.parse(localStorage.getItem("metiers-coches")); if (Array.isArray(vieux)) memo = { metiers: vieux }; } catch (e) {} }
-      const memoA = (cle, defaut) => (memo && Array.isArray(memo[cle])) ? memo[cle] : defaut;
+      // --- Cases des filtres type de contrat et niveau de poste (cochées par poserOnglet) ---
+      document.getElementById("f-contrats").innerHTML = CONTRATS.map(([k, l]) =>
+        `<label><input type="checkbox" value="${k}"> ${l} <small id="nb-c-${k}"></small></label>`).join("");
+      document.getElementById("f-niveaux").innerHTML = NIVEAUX.map(([k, l]) =>
+        `<label><input type="checkbox" value="${k}"> <i class="pastille" style="background:${COUL_NIV[k]}"></i> ${l} <small id="nb-n-${k}"></small></label>`).join("");
 
-      // --- Filtre métiers, par groupe ---
-      const groupes = [...new Set(d.metiers.map(m => m.groupe))];
-      const memoM = memo && Array.isArray(memo.metiers) ? memo.metiers : null;
-      document.getElementById("metiers").innerHTML = groupes.map(g => `<h4 style="color:${COULEURS[g] || ""}">${g}</h4>` +
-        d.metiers.filter(m => m.groupe === g).map(m =>
-          `<label><input type="checkbox" value="${m.code}" data-groupe="${m.groupe}" ${(memoM ? memoM.includes(m.code) : m.coche) ? "checked" : ""}> ${m.libelle} <small>${m.code} · ${m.actives}</small></label>`).join("")).join("");
-      // Une case par groupe : cocher/décocher le groupe entier, cumulables ; état intermédiaire si le groupe est partiel.
-      document.getElementById("groupes").innerHTML = groupes.map(g =>
-        `<label style="color:${COULEURS[g] || ""}"><input type="checkbox" data-groupe-case="${g}"> ${g}</label>`).join("");
-      const majGroupes = () => document.querySelectorAll("[data-groupe-case]").forEach(c => {
-        const cases = [...document.querySelectorAll(`#metiers input[data-groupe="${c.dataset.groupeCase}"]`)];
-        const k = cases.filter(i => i.checked).length;
-        c.checked = cases.length > 0 && k === cases.length; c.indeterminate = k > 0 && k < cases.length;
-      });
-      document.querySelectorAll("[data-groupe-case]").forEach(c => c.addEventListener("change", () => {
+      // --- Événements, posés une fois : les cases de métiers et de groupes changent avec l'onglet ---
+      document.getElementById("metiers").addEventListener("change", () => { majGroupes(); Commun.rafraichir(); });
+      // Une case par groupe : cocher/décocher le groupe entier, cumulables.
+      document.getElementById("groupes").addEventListener("change", e => {
+        const c = e.target.closest("[data-groupe-case]");
+        if (!c) return;
         document.querySelectorAll(`#metiers input[data-groupe="${c.dataset.groupeCase}"]`).forEach(i => { i.checked = c.checked; });
         majGroupes(); Commun.rafraichir();
-      }));
-      document.getElementById("metiers").addEventListener("change", () => { majGroupes(); Commun.rafraichir(); });
+      });
       document.querySelectorAll(".boutons button").forEach(b => b.addEventListener("click", () => {
         document.querySelectorAll("#metiers input").forEach(i => { i.checked = b.dataset.groupe === "tous"; });
         majGroupes(); Commun.rafraichir();
       }));
-      majGroupes();
-
-      // --- Filtre type de contrat ---
-      const memoC = memoA("contrats", CONTRATS.map(x => x[0]));
-      document.getElementById("f-contrats").innerHTML = CONTRATS.map(([k, l]) =>
-        `<label><input type="checkbox" value="${k}" ${memoC.includes(k) ? "checked" : ""}> ${l} <small id="nb-c-${k}"></small></label>`).join("");
-      // --- Filtre niveau de poste ---
-      const memoN = memoA("niveaux", NIVEAUX.map(x => x[0]));
-      document.getElementById("f-niveaux").innerHTML = NIVEAUX.map(([k, l]) =>
-        `<label><input type="checkbox" value="${k}" ${memoN.includes(k) ? "checked" : ""}> <i class="pastille" style="background:${COUL_NIV[k]}"></i> ${l} <small id="nb-n-${k}"></small></label>`).join("");
       document.getElementById("f-contrats").addEventListener("change", Commun.rafraichir);
       document.getElementById("f-niveaux").addEventListener("change", Commun.rafraichir);
+
+      // --- Onglets : le dernier consulté, sinon le premier ---
+      Commun.onglets = ongletsDe(d);
+      Commun.memo = lireMemo(Commun.onglets);
+      poserBarreOnglets();
+      poserOnglet(Commun.memo.onglet);
 
       if (initier) initier(d);
       Commun.rafraichir();

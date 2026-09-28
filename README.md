@@ -62,6 +62,17 @@ aujourd'hui, on surveille) et, décochés par défaut, la frontière avec la
 communication et le commerce (E1112, E1103, E1107, E1404, D1506, D1415 CRM).
 Au 22/09/2026 : 3 362 offres actives.
 
+Depuis le 28/09/2026, le site a **trois onglets**, chacun avec ses métiers, ses groupes et ses
+filtres mémorisés (la liste vit dans `scripts/extraire.py`, `ONGLETS`) :
+
+- **Marketing & Digital** — les 23 codes ci-dessus ;
+- **DCIB** — commercial (M1707, D1402, D1406, D1407, D1401, M1704), achats et international
+  (M1101, M1102, N1202), marketing et produit (M1705, M1703), direction et conseil (M1302, M1402) ;
+- **Retail** — magasin et grande distribution (D1301, D1509, D1502, D1503, D1508, D1506),
+  commerce et marketing (D1406, M1704, M1705, M1706, M1703, M1707), achats et direction (M1101, M1302).
+
+Un code présent dans plusieurs onglets n'est interrogé qu'une fois : 39 codes au total.
+
 ## La chaîne
 
 ```
