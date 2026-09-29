@@ -68,8 +68,8 @@ const COUL_NIV = { assistant: "#f9b8d8", charge: "#ee6aab", responsable: "#c2185
 const ENCRE_FONCEE = new Set(["assistant", "charge", "autre"]);
 const NIVEAUX_DEFAUT = [["assistant", "Assistant·e / junior"], ["charge", "Chargé·e"], ["responsable", "Responsable"], ["directeur", "Directeur·rice"], ["autre", "Autre"]];
 const FORMATIONS_DEFAUT = ["< Bac", "Bac", "Bac+2", "Bac+3/4", "Bac+5"];
-// Six familles de contrat, exclusives : une offre tombe dans une seule.
-const CONTRATS = [["cdi", "CDI"], ["cdd", "CDD"], ["alt", "Alternance"], ["mis", "Intérim"], ["indep", "Indépendant"], ["autre", "Autre"]];
+// Sept familles de contrat, exclusives : une offre tombe dans une seule.
+const CONTRATS = [["cdi", "CDI"], ["cdd", "CDD"], ["stage", "Stage"], ["alt", "Alternance"], ["mis", "Intérim"], ["indep", "Indépendant"], ["autre", "Autre"]];
 const AURA = new Set(["01", "03", "07", "15", "26", "38", "42", "43", "63", "69", "73", "74"]);
 const IDF = new Set(["75", "77", "78", "91", "92", "93", "94", "95"]);
 const EXPS = ["Débutant accepté", "Moins d'un an", "1 à 2 ans", "3 à 4 ans", "5 ans et plus", "Non précisé"];
@@ -80,9 +80,12 @@ Chart.defaults.plugins.legend.display = false;
 let D, graphiques = {};
 let NIVEAUX = NIVEAUX_DEFAUT, FORMATIONS = FORMATIONS_DEFAUT;
 
-/* Famille de contrat d'une offre : l'alternance l'emporte sur le CDI/CDD qui la porte. */
+/* Famille de contrat d'une offre. Le stage d'abord : France Travail n'a pas de contrat « stage »
+   et le range sous un CDI ou un CDD, c'est l'intitulé qui le dit (resumer.py, est_stage).
+   Puis l'alternance, qui l'emporte sur le CDI/CDD qui la porte. */
 function familleContrat(o) {
   const c = o.contrat || "", nat = o.nature || "";
+  if (o.stage) return "stage";
   if (o.alternance || nat === "apprentissage" || nat === "professionnalisation") return "alt";
   if (c === "MIS") return "mis";
   if (c === "LIB" || c === "FRA" || c === "CCE" || nat === "non_salarie") return "indep";
@@ -93,9 +96,14 @@ function familleContrat(o) {
 const niv = o => (o && COUL_NIV[o.niveau]) ? o.niveau : "autre";
 const libNiv = k => (NIVEAUX.find(x => x[0] === k) || [k, k])[1];
 const libContrat = code => (D && D.contrats && D.contrats[code]) || code || "Non précisé";
-/* Le contrat tel qu'on l'annonce au lecteur : l'alternance passe devant le CDI/CDD
-   qui la porte, pour dire partout la même chose que le filtre. */
-const libContratOffre = o => familleContrat(o) === "alt" ? "Alternance" : libContrat(o.contrat);
+/* Le contrat tel qu'on l'annonce au lecteur : le stage et l'alternance passent devant le
+   CDI/CDD qui les porte, pour dire partout la même chose que le filtre. */
+const libContratOffre = o => ({ stage: "Stage", alt: "Alternance" })[familleContrat(o)] || libContrat(o.contrat);
+/* La source d'une offre, et le site partenaire d'où France Travail l'a reprise. */
+const SOURCE_DEFAUT = "France Travail";
+const sourceDe = o => o.source || SOURCE_DEFAUT;
+const libSource = o => sourceDe(o) + (o.partenaire ? " · via " + o.partenaire : "");
+const etiqSource = o => `<span class="etiq source" title="Source de l'annonce">${libSource(o)}</span>`;
 
 /* Une offre ouverte aux débutants. L'accueil annonce ce chiffre dans son lien vers
    « Ce qu'on vous demande », qui l'affiche aussi : une seule règle écrite une fois,
@@ -215,12 +223,16 @@ const couleurMetier = code => couleurGroupe(Commun.groupeDe[code]);
 
 const cochees = sel => new Set([...document.querySelectorAll(sel + " input:checked")].map(i => i.value));
 function etatFiltres() {
-  return { metiers: cochees("#metiers"), contrats: cochees("#f-contrats"), niveaux: cochees("#f-niveaux") };
+  // Le filtre des sources n'est affiché que s'il y en a plusieurs : masqué, il laisse tout passer.
+  const bloc = document.getElementById("bloc-sources");
+  const sources = bloc && !bloc.hidden ? cochees("#f-sources") : null;
+  return { metiers: cochees("#metiers"), contrats: cochees("#f-contrats"), niveaux: cochees("#f-niveaux"), sources };
 }
-/* Les offres retenues par les trois filtres. */
+/* Les offres retenues par les filtres. */
 function filtrer(f) {
   f = f || etatFiltres();
-  return D.offres.filter(o => f.metiers.has(o.rome) && f.contrats.has(familleContrat(o)) && f.niveaux.has(niv(o)));
+  return D.offres.filter(o => f.metiers.has(o.rome) && f.contrats.has(familleContrat(o)) && f.niveaux.has(niv(o))
+    && (!f.sources || f.sources.has(sourceDe(o))));
 }
 
 /* ============================================================
@@ -256,6 +268,10 @@ const HTML_FILTRES = `
       <div class="cases" id="f-niveaux"></div>
       <p class="note" style="margin:8px 0 0">Déduit de l'intitulé de l'annonce. Ces couleurs servent de repère dans toute la page.</p>
     </div>
+    <div id="bloc-sources" hidden>
+      <h3>Source</h3>
+      <div class="cases" id="f-sources"></div>
+    </div>
   </div>
   <p class="compte" id="compte"></p>`;
 
@@ -272,7 +288,7 @@ function poserNavEtFiltres() {
     ? `<div class="carte">${HTML_FILTRES}</div>`
     // Ailleurs : replié, on vient lire une page, pas refaire ses filtres.
     : `<details class="carte"><summary id="resume-filtres">Filtres</summary>${HTML_FILTRES}</details>`)
-    + `<div class="vide" id="aucune" hidden>Aucune offre ne correspond à ces filtres. Recochez un métier, un type de contrat ou un niveau de poste.</div>`;
+    + `<div class="vide" id="aucune" hidden>Aucune offre ne correspond à ces filtres. Recochez un métier, un type de contrat, un niveau de poste ou une source.</div>`;
 
   const p = document.getElementById("pied");
   if (p) p.innerHTML =
@@ -341,8 +357,14 @@ function poserOnglet(id) {
   majGroupes();
 
   const memoC = memoA("contrats", CONTRATS.map(x => x[0])), memoN = memoA("niveaux", NIVEAUX.map(x => x[0]));
-  document.querySelectorAll("#f-contrats input").forEach(i => { i.checked = memoC.includes(i.value); });
+  // Un type de contrat apparu depuis la mémorisation (ex. « Stage ») arrive coché : sinon ses offres
+  // disparaîtraient en silence pour qui avait déjà réglé ses filtres. Les anciens mémos, sans
+  // « contrats_vus », connaissaient les six familles d'avant le stage.
+  const vus = memoA("contrats_vus", ["cdi", "cdd", "alt", "mis", "indep", "autre"]);
+  document.querySelectorAll("#f-contrats input").forEach(i => { i.checked = memoC.includes(i.value) || !vus.includes(i.value); });
   document.querySelectorAll("#f-niveaux input").forEach(i => { i.checked = memoN.includes(i.value); });
+  const memoS = memoA("sources", null);
+  document.querySelectorAll("#f-sources input").forEach(i => { i.checked = !memoS || memoS.includes(i.value); });
 }
 
 /* La barre d'onglets, avec le nombre d'offres actives de chacun ; masquée s'il n'y en a qu'un. */
@@ -392,6 +414,7 @@ const Commun = {
     // Compteurs dans les cases de filtre + ligne de synthèse
     CONTRATS.forEach(([k]) => { const e = document.getElementById("nb-c-" + k); if (e) e.textContent = parMetier.filter(o => familleContrat(o) === k).length; });
     NIVEAUX.forEach(([k]) => { const e = document.getElementById("nb-n-" + k); if (e) e.textContent = parMetier.filter(o => niv(o) === k).length; });
+    document.querySelectorAll("#f-sources input").forEach(i => { const e = i.parentNode.querySelector("small"); if (e) e.textContent = parMetier.filter(o => sourceDe(o) === i.value).length; });
     document.getElementById("compte").innerHTML = `<b>${n}</b> offre${n > 1 ? "s" : ""} sélectionnée${n > 1 ? "s" : ""} sur ${total}${titre ? " de l'onglet" + titre : ""} — ${f.metiers.size} métier${f.metiers.size > 1 ? "s" : ""} coché${f.metiers.size > 1 ? "s" : ""}.`;
     document.getElementById("aucune").hidden = n > 0;
     const resume = document.getElementById("resume-filtres");
@@ -401,7 +424,8 @@ const Commun = {
     if (n === 0) { const d = document.querySelector("details.carte"); if (d) d.open = true; }
 
     // Mémorisation des trois filtres de l'onglet, et de l'onglet lui-même : ils suivent d'une page à l'autre.
-    Commun.memo.par_onglet[Commun.onglet.id] = { metiers: [...f.metiers], contrats: [...f.contrats], niveaux: [...f.niveaux] };
+    Commun.memo.par_onglet[Commun.onglet.id] = { metiers: [...f.metiers], contrats: [...f.contrats], niveaux: [...f.niveaux],
+      contrats_vus: CONTRATS.map(x => x[0]), sources: f.sources ? [...f.sources] : undefined };
     try { localStorage.setItem("metiers-filtres", JSON.stringify(Commun.memo)); } catch (e) {}
 
     Commun.rendre(offres, D);
@@ -430,6 +454,11 @@ const Commun = {
         `<label><input type="checkbox" value="${k}"> ${l} <small id="nb-c-${k}"></small></label>`).join("");
       document.getElementById("f-niveaux").innerHTML = NIVEAUX.map(([k, l]) =>
         `<label><input type="checkbox" value="${k}"> <i class="pastille" style="background:${COUL_NIV[k]}"></i> ${l} <small id="nb-n-${k}"></small></label>`).join("");
+      // Sources : France Travail, et les autres sources une fois branchées (resume.json, clé « sources »).
+      const sources = Array.isArray(d.sources) && d.sources.length ? d.sources : [SOURCE_DEFAUT];
+      document.getElementById("f-sources").innerHTML = sources.map(s =>
+        `<label><input type="checkbox" value="${s}"> ${s} <small></small></label>`).join("");
+      document.getElementById("bloc-sources").hidden = sources.length < 2;
 
       // --- Événements, posés une fois : les cases de métiers et de groupes changent avec l'onglet ---
       document.getElementById("metiers").addEventListener("change", () => { majGroupes(); Commun.rafraichir(); });
@@ -446,6 +475,7 @@ const Commun = {
       }));
       document.getElementById("f-contrats").addEventListener("change", Commun.rafraichir);
       document.getElementById("f-niveaux").addEventListener("change", Commun.rafraichir);
+      document.getElementById("f-sources").addEventListener("change", Commun.rafraichir);
 
       // --- Onglets : le dernier consulté, sinon le premier ---
       Commun.onglets = ongletsDe(d);

@@ -9,7 +9,7 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet.markercluster@1.5.3/dist/MarkerCluster.min.css">
 <script src="https://cdn.jsdelivr.net/npm/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-<link rel="stylesheet" href="assets/commun.css?v=4">
+<link rel="stylesheet" href="assets/commun.css?v=5">
 </head>
 <body>
 <main>
@@ -56,7 +56,7 @@
   <footer id="pied"></footer>
 </main>
 
-<script src="assets/commun.js?v=4"></script>
+<script src="assets/commun.js?v=5"></script>
 <script>
 /* ============ Accueil : chiffres, carte, départements, contrats ============ */
 let carte, calque;
@@ -74,6 +74,7 @@ function rendre(offres, D) {
     [offres.filter(o => o.dep === "63").length, "dans le Puy-de-Dôme"],
     [offres.filter(o => AURA.has(o.dep)).length, "en Auvergne-Rhône-Alpes"],
     [offres.filter(o => familleContrat(o) === "alt").length, "en alternance"],
+    [offres.filter(o => familleContrat(o) === "stage").length, "en stage"],
     [pct(debutants, n) + " %", `acceptent un débutant (${debutants})`],
     [pct(avecSal.length, n) + " %", `affichent un salaire (${avecSal.length})`],
     [avecSal.length ? euro(mediane(mins), 100) + " → " + euro(mediane(maxs), 100) : "—", "brut annuel affiché, médiane des minima → des maxima"],
@@ -91,7 +92,7 @@ function rendre(offres, D) {
     if (o.lat == null) continue;
     places++;
     const m = L.circleMarker([o.lat, o.lon], { radius: 6, color: "#fff", weight: 1, fillColor: couleurMetier(o.rome), fillOpacity: o.prec === "departement" ? .45 : .9 });
-    m.bindPopup(`<b>${o.intitule}</b>${o.entreprise || "employeur non précisé"} · ${o.lieu || ""}<br>${libContratOffre(o)}${salaireCourt(o) ? " · " + salaireCourt(o) : ""}<br><span style="color:#888">${(lib[o.rome] && lib[o.rome].libelle) || o.rome} · ${libNiv(niv(o))}${o.prec !== "offre" ? " · position : " + o.prec : ""}</span>`, { closeButton: false });
+    m.bindPopup(`<b>${o.intitule}</b>${o.entreprise || "employeur non précisé"} · ${o.lieu || ""}<br>${libContratOffre(o)}${salaireCourt(o) ? " · " + salaireCourt(o) : ""}<br><span style="color:#888">${libSource(o)} · ${(lib[o.rome] && lib[o.rome].libelle) || o.rome} · ${libNiv(niv(o))}${o.prec !== "offre" ? " · position : " + o.prec : ""}</span>`, { closeButton: false });
     m.on("mouseover", function () { this.openPopup(); });
     m.on("mouseout", function () { this.closePopup(); });
     if (o.url) m.on("click", () => window.open(o.url, "_blank", "noopener"));

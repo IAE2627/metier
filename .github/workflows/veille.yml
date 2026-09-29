@@ -23,13 +23,17 @@ jobs:
 
       - run: pip install -r requirements.txt
 
-      - name: Extraire les offres et refaire le résumé
+      # Une panne de l'API ne bloque pas la chaîne : l'étape est marquée en échec (visible dans
+      # l'onglet Actions), mais le résumé et le commit tournent quand même sur ce qui a été collecté.
+      - name: Extraire les offres France Travail
+        continue-on-error: true
         env:
           FT_CLIENT_ID: ${{ secrets.FT_CLIENT_ID }}
           FT_CLIENT_SECRET: ${{ secrets.FT_CLIENT_SECRET }}
-        run: |
-          python scripts/extraire.py
-          python scripts/resumer.py
+        run: python scripts/extraire.py
+
+      - name: Refaire le résumé
+        run: python scripts/resumer.py
 
       - name: Enregistrer la donnée du jour (commit + push)
         run: |
