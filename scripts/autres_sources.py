@@ -295,11 +295,13 @@ def collecter(slug, codes, aujourdhui):
 
 def lire(jour, fraicheur=2):
     """Pour resumer.py : les offres de chaque source, lues dans son fichier le plus récent,
-    s'il n'a pas plus de `fraicheur` jours de retard sur `jour` (sinon les offres sont périmées)."""
+    s'il n'a pas plus de `fraicheur` jours de retard sur `jour` (sinon les offres sont périmées).
+    Un fichier plus récent que `jour` est accepté : une source peut avoir tourné alors que la
+    collecte France Travail, elle, a échoué."""
     limite = f"{date.fromisoformat(jour) - timedelta(days=fraicheur):%Y-%m-%d}"
     offres = []
     for slug in SOURCES:
-        fichiers = [f for f in sorted((DOSSIER / slug).glob("*.jsonl")) if limite <= f.stem <= jour]
+        fichiers = [f for f in sorted((DOSSIER / slug).glob("*.jsonl")) if limite <= f.stem]
         if fichiers:
             with fichiers[-1].open(encoding="utf-8") as fh:
                 offres += [json.loads(l) for l in fh if l.strip()]

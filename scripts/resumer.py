@@ -352,6 +352,9 @@ class Geocodeur:
         if not dep:
             m = re.search(r"\((\d{2}|2A|2B)\)", lieu)
             dep = m.group(1) if m else ""
+        # Coordonnées et code postal connus (La bonne alternance) : rien à chercher de plus.
+        if o.get("lat") is not None and o.get("lon") is not None and dep:
+            return o["lat"], o["lon"], "offre", dep
         nom = re.split(r"[,(]", lieu)[0].strip()
         nom = re.sub(r"^\d{5}\s+", "", nom)            # « 75001 Paris » -> « Paris »
         trouve = self.ville(nom) if nom and nom.lower() not in ("france", "télétravail", "teletravail") else None
