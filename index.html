@@ -9,7 +9,7 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet.markercluster@1.5.3/dist/MarkerCluster.min.css">
 <script src="https://cdn.jsdelivr.net/npm/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-<link rel="stylesheet" href="assets/commun.css?v=3">
+<link rel="stylesheet" href="assets/commun.css?v=4">
 </head>
 <body>
 <main>
@@ -34,7 +34,7 @@
       <button data-vue="paris">Île-de-France</button>
       <button data-fond="gris" class="actif">Fond gris</button>
       <button data-fond="osm">Fond OpenStreetMap</button>
-      <span class="legende"><span><i style="background:#0a5cff"></i>cœur marketing</span><span><i style="background:#ff6a00"></i>digital</span><span><i style="background:#8e8e93"></i>frontière</span></span>
+      <span class="legende" id="legende-carte"></span>
     </div>
     <div id="map"></div>
     <p class="note" id="note-carte"></p></div>
@@ -47,16 +47,16 @@
   <!-- ============ 4. LE RESTE, PAGE PAR PAGE ============ -->
   <h2>Le reste, page par page <small>— vos filtres vous suivent</small></h2>
   <div class="liens">
-    <a class="lien" href="salaires.html"><b>Ce que ça paie</b><span><i id="cle-salaires">—</i> — fourchettes par niveau, par métier, par contrat, et Île-de-France ou ailleurs.</span></a>
-    <a class="lien" href="exigences.html"><b>Ce qu'on vous demande</b><span><i id="cle-exigences">—</i> — expérience, formation, outils et compétences cités dans les annonces.</span></a>
-    <a class="lien" href="recruteurs.html"><b>Qui recrute</b><span><i id="cle-recruteurs">—</i> — entreprises, secteurs, niveau de poste par métier, et les dernières offres.</span></a>
-    <a class="lien" href="mouvement.html"><b>Le marché bouge</b><span><i id="cle-mouvement">—</i> — les extractions successives, la fraîcheur des annonces, et les limites de ces chiffres.</span></a>
+    <a class="lien" href="salaires.html"><b>Rémunération</b><span><i id="cle-salaires">—</i> — fourchettes par niveau, par métier, par contrat, et Île-de-France ou ailleurs.</span></a>
+    <a class="lien" href="exigences.html"><b>Missions</b><span><i id="cle-exigences">—</i> — expérience, formation, outils et compétences cités dans les annonces.</span></a>
+    <a class="lien" href="recruteurs.html"><b>Qui recrute ?</b><span><i id="cle-recruteurs">—</i> — entreprises, secteurs, niveau de poste par métier, et les dernières offres.</span></a>
+    <a class="lien" href="mouvement.html"><b>Les évolutions</b><span><i id="cle-mouvement">—</i> — les extractions successives, la fraîcheur des annonces, et les limites de ces chiffres.</span></a>
   </div>
 
   <footer id="pied"></footer>
 </main>
 
-<script src="assets/commun.js?v=3"></script>
+<script src="assets/commun.js?v=4"></script>
 <script>
 /* ============ Accueil : chiffres, carte, départements, contrats ============ */
 let carte, calque;
@@ -82,13 +82,15 @@ function rendre(offres, D) {
   document.getElementById("chiffres").innerHTML = tuiles.map(([v, l]) => `<div class="chiffre"><b>${v}</b><span>${l}</span></div>`).join("");
 
   /* ---- Carte + départements + contrats ---- */
+  // Légende : les groupes de l'onglet affiché, dans leur couleur.
+  document.getElementById("legende-carte").innerHTML = Commun.onglet.groupes.map(g =>
+    `<span><i style="background:${couleurGroupe(g.nom)}"></i>${g.nom.toLowerCase()}</span>`).join("");
   calque.clearLayers();
   let places = 0;
   for (const o of offres) {
     if (o.lat == null) continue;
     places++;
-    const g = lib[o.rome] && lib[o.rome].groupe;
-    const m = L.circleMarker([o.lat, o.lon], { radius: 6, color: "#fff", weight: 1, fillColor: COULEURS[g] || couleur, fillOpacity: o.prec === "departement" ? .45 : .9 });
+    const m = L.circleMarker([o.lat, o.lon], { radius: 6, color: "#fff", weight: 1, fillColor: couleurMetier(o.rome), fillOpacity: o.prec === "departement" ? .45 : .9 });
     m.bindPopup(`<b>${o.intitule}</b>${o.entreprise || "employeur non précisé"} · ${o.lieu || ""}<br>${libContratOffre(o)}${salaireCourt(o) ? " · " + salaireCourt(o) : ""}<br><span style="color:#888">${(lib[o.rome] && lib[o.rome].libelle) || o.rome} · ${libNiv(niv(o))}${o.prec !== "offre" ? " · position : " + o.prec : ""}</span>`, { closeButton: false });
     m.on("mouseover", function () { this.openPopup(); });
     m.on("mouseout", function () { this.closePopup(); });

@@ -29,7 +29,7 @@ import requests
 
 RACINE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RACINE / "scripts"))
-from extraire import METIERS  # noqa: E402  (la liste des métiers vit dans un seul fichier)
+from extraire import METIERS, ONGLETS  # noqa: E402  (la liste des métiers vit dans un seul fichier)
 
 # Les outils et compétences que l'on cherche dans les annonces : c'est VOTRE grille, adaptez-la.
 # Chaque entrée : libellé affiché -> variantes cherchées (mot entier, insensible à la casse).
@@ -349,6 +349,10 @@ def main():
         "metiers": [{"code": c, "libelle": l, "groupe": g, "coche": k,
                      "actives": sum(1 for o in offres if o["rome"] == c)}
                     for c, (l, g, k) in METIERS.items()],
+        # Les onglets du site : chacun a ses groupes de métiers, affichés et filtrés à part.
+        "onglets": [{"id": i, "titre": t,
+                     "groupes": [{"nom": g, "codes": codes, "coche": k} for g, (codes, k) in groupes.items()]}
+                    for i, (t, groupes) in ONGLETS.items()],
         "outils": list(OUTILS),
         "contrats": {c: contrat_libelle(c)
                      for c in sorted({o["contrat"] for o in offres if o["contrat"]})},

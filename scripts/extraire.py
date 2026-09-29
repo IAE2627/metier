@@ -33,36 +33,82 @@ from dotenv import load_dotenv
 RACINE = Path(__file__).resolve().parent.parent
 load_dotenv(RACINE / ".env")
 
-# Les métiers suivis : code ROME -> (libellé, groupe, coché par défaut sur la page).
-# Choisis pour le M2 Marketing Opérationnel et Digital ; la page permet de cocher/décocher.
-METIERS = {
+# Le libellé affiché de chaque code ROME suivi.
+LIBELLES = {
     # Cœur marketing
-    "M1718": ("Chargé(e) de marketing digital", "Marketing", True),
-    "M1716": ("Directeur(trice) marketing digital", "Marketing", True),
-    "M1705": ("Responsable marketing", "Marketing", True),
-    "M1703": ("Chef(fe) de produit", "Marketing", True),
-    "M1620": ("Assistant(e) marketing", "Marketing", True),
-    "M1706": ("Chef(fe) de promotion des ventes", "Marketing", True),
-    "M1430": ("Chargé(e) d'études commerciales", "Marketing", True),
-    "M1711": ("Directeur(trice) du marketing", "Marketing", True),
+    "M1718": "Chargé(e) de marketing digital",
+    "M1716": "Directeur(trice) marketing digital",
+    "M1705": "Responsable marketing",
+    "M1703": "Chef(fe) de produit",
+    "M1620": "Assistant(e) marketing",
+    "M1706": "Chef(fe) de promotion des ventes",
+    "M1430": "Chargé(e) d'études commerciales",
+    "M1711": "Directeur(trice) du marketing",
     # Digital, contenu, e-commerce
-    "E1113": ("Responsable e-commerce", "Digital", True),
-    "D1438": ("Assistant(e) e-commerce", "Digital", True),
-    "E1101": ("Community manager", "Digital", True),
-    "E1124": ("Social media manager", "Digital", True),
-    "E1405": ("Référenceur(se) web (SEO)", "Digital", True),
-    "M1886": ("Chef(fe) de projet web", "Digital", True),
-    "M1426": ("Chief digital officer", "Digital", True),
-    "M1719": ("Chargé(e) des relations avec les influenceurs", "Digital", True),
-    "E1406": ("Influenceur(se) web", "Digital", True),
+    "E1113": "Responsable e-commerce",
+    "D1438": "Assistant(e) e-commerce",
+    "E1101": "Community manager",
+    "E1124": "Social media manager",
+    "E1405": "Référenceur(se) web (SEO)",
+    "M1886": "Chef(fe) de projet web",
+    "M1426": "Chief digital officer",
+    "M1719": "Chargé(e) des relations avec les influenceurs",
+    "E1406": "Influenceur(se) web",
     # Communication et commerce, à la frontière
-    "E1112": ("Chargé(e) de communication", "Frontière", False),
-    "E1103": ("Chargé(e) des relations publiques", "Frontière", False),
-    "E1107": ("Chef(fe) de projet événementiel", "Frontière", False),
-    "E1404": ("Assistant(e) en publicité", "Frontière", False),
-    "D1506": ("Chargé(e) de merchandising", "Frontière", False),
-    "D1415": ("Chargé(e) de relation client (CRM)", "Frontière", False),
+    "E1112": "Chargé(e) de communication",
+    "E1103": "Chargé(e) des relations publiques",
+    "E1107": "Chef(fe) de projet événementiel",
+    "E1404": "Assistant(e) en publicité",
+    "D1506": "Chargé(e) de merchandising",
+    "D1415": "Chargé(e) de relation client (CRM)",
+    # Commerce, achats, direction (onglets DCIB et Retail)
+    "M1707": "Stratégie commerciale",
+    "D1402": "Relation commerciale grands comptes et entreprises",
+    "D1406": "Management en force de vente",
+    "D1407": "Relation technico-commerciale",
+    "D1401": "Assistanat commercial",
+    "M1704": "Management relation clientèle",
+    "M1101": "Achats",
+    "M1102": "Direction des achats",
+    "N1202": "Gestion des opérations de circulation internationale des marchandises",
+    "M1302": "Direction de petite ou moyenne entreprise",
+    "M1402": "Conseil en organisation et management d'entreprise",
+    # Magasin et grande distribution (onglet Retail)
+    "D1301": "Management de magasin de détail",
+    "D1509": "Management de département en grande distribution",
+    "D1502": "Management/gestion de rayon produits alimentaires",
+    "D1503": "Management/gestion de rayon produits non alimentaires",
+    "D1508": "Encadrement du personnel de caisses",
 }
+
+# Les onglets du site : identifiant -> (titre, groupes). Chaque groupe : nom -> (codes, coché par défaut).
+# Un même code peut figurer dans plusieurs onglets : il n'est interrogé qu'une fois.
+ONGLETS = {
+    "marketing": ("Marketing & Digital", {
+        "Marketing": (["M1718", "M1716", "M1705", "M1703", "M1620", "M1706", "M1430", "M1711"], True),
+        "Digital": (["E1113", "D1438", "E1101", "E1124", "E1405", "M1886", "M1426", "M1719", "E1406"], True),
+        "Frontière": (["E1112", "E1103", "E1107", "E1404", "D1506", "D1415"], False),
+    }),
+    "dcib": ("DCIB", {
+        "Commercial": (["M1707", "D1402", "D1406", "D1407", "D1401", "M1704"], True),
+        "Achats & international": (["M1101", "M1102", "N1202"], True),
+        "Marketing & produit": (["M1705", "M1703"], True),
+        "Direction & conseil": (["M1302", "M1402"], True),
+    }),
+    "retail": ("Retail", {
+        "Magasin & grande distribution": (["D1301", "D1509", "D1502", "D1503", "D1508", "D1506"], True),
+        "Commerce & marketing": (["D1406", "M1704", "M1705", "M1706", "M1703", "M1707"], True),
+        "Achats & direction": (["M1101", "M1302"], True),
+    }),
+}
+
+# Les métiers suivis : code ROME -> (libellé, groupe, coché par défaut), tirés du premier onglet
+# où le code apparaît. C'est la liste qu'interroge la collecte.
+METIERS = {}
+for _titre, _groupes in ONGLETS.values():
+    for _groupe, (_codes, _coche) in _groupes.items():
+        for _code in _codes:
+            METIERS.setdefault(_code, (LIBELLES[_code], _groupe, _coche))
 
 TOKEN_URL = "https://entreprise.francetravail.fr/connexion/oauth2/access_token?realm=/partenaire"
 SEARCH_URL = "https://api.francetravail.io/partenaire/offresdemploi/v2/offres/search"
@@ -149,7 +195,12 @@ def main():
 
     actives, lignes_serie = [], []
     for code in codes:
-        offres, total = chercher(token, {"codeROME": code})
+        # Un code refusé par l'API (ex. retiré du référentiel) ne doit pas bloquer la veille des autres.
+        try:
+            offres, total = chercher(token, {"codeROME": code})
+        except RuntimeError as e:
+            print(f"{code}  {METIERS[code][0]:<48} ignoré — {e}")
+            continue
         nouvelles = modifiees = 0
         with (RACINE / "data" / "brut" / mois / f"{code}.jsonl").open("a", encoding="utf-8") as brut:
             for o in offres:

@@ -8,10 +8,10 @@ l'API France Travail, enregistre les offres du jour et publie les chiffres.
 | | |
 |---|---|
 | [Accueil](https://vincentfavarin.github.io/metier/) | les filtres, les chiffres, la carte de France |
-| [Ce que ça paie](https://vincentfavarin.github.io/metier/salaires.html) | fourchettes par niveau, métier, contrat, territoire |
-| [Ce qu'on vous demande](https://vincentfavarin.github.io/metier/exigences.html) | expérience, diplôme, outils, compétences |
-| [Qui recrute](https://vincentfavarin.github.io/metier/recruteurs.html) | entreprises, secteurs, employeurs ouverts aux débutants |
-| [Le marché bouge](https://vincentfavarin.github.io/metier/mouvement.html) | les extractions successives, la fraîcheur des annonces |
+| [Rémunération](https://vincentfavarin.github.io/metier/salaires.html) | fourchettes par niveau, métier, contrat, territoire |
+| [Missions](https://vincentfavarin.github.io/metier/exigences.html) | expérience, diplôme, outils, compétences |
+| [Qui recrute ?](https://vincentfavarin.github.io/metier/recruteurs.html) | entreprises, secteurs, employeurs ouverts aux débutants |
+| [Les évolutions](https://vincentfavarin.github.io/metier/mouvement.html) | les extractions successives, la fraîcheur des annonces |
 
 Dossier de travail pour la séance « Écouter le marché de votre métier »
 (M2 MOD, IAE Clermont Auvergne). Dépôt de démonstration : il montre ce que
@@ -61,6 +61,17 @@ manager, E1124, E1405 SEO, M1886, M1426, M1719 et E1406 influence — 0 offre
 aujourd'hui, on surveille) et, décochés par défaut, la frontière avec la
 communication et le commerce (E1112, E1103, E1107, E1404, D1506, D1415 CRM).
 Au 22/09/2026 : 3 362 offres actives.
+
+Depuis le 28/09/2026, le site a **trois onglets**, chacun avec ses métiers, ses groupes et ses
+filtres mémorisés (la liste vit dans `scripts/extraire.py`, `ONGLETS`) :
+
+- **Marketing & Digital** — les 23 codes ci-dessus ;
+- **DCIB** — commercial (M1707, D1402, D1406, D1407, D1401, M1704), achats et international
+  (M1101, M1102, N1202), marketing et produit (M1705, M1703), direction et conseil (M1302, M1402) ;
+- **Retail** — magasin et grande distribution (D1301, D1509, D1502, D1503, D1508, D1506),
+  commerce et marketing (D1406, M1704, M1705, M1706, M1703, M1707), achats et direction (M1101, M1302).
+
+Un code présent dans plusieurs onglets n'est interrogé qu'une fois : 39 codes au total.
 
 ## La chaîne
 
