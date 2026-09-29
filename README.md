@@ -1,6 +1,6 @@
 # Le marché de mon métier — les métiers du marketing
 
-### 👉 **[Voir le site : IAE2627.github.io/metier](https://IAE2627.github.io/metier/)**
+### 👉 **[Voir le site : [IAE2627.github.io/metier](https://IAE2627.github.io/metier/](https://anaellepinto.github.io/metier/))**
 
 Le site est mis à jour chaque matin par une Action GitHub : elle interroge
 l'API France Travail, enregistre les offres du jour et publie les chiffres.
