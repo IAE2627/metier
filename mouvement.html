@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Les évolutions — les métiers du marketing</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-<link rel="stylesheet" href="assets/commun.css?v=5">
+<link rel="stylesheet" href="assets/commun.css?v=6">
 </head>
 <body>
 <main>
@@ -23,7 +23,8 @@
   </div>
 
   <h2 id="limites">Ce que ces chiffres n'autorisent pas à conclure</h2>
-  <p class="note">Un seul canal : France Travail n'héberge pas toutes les offres cadres (APEC, LinkedIn, Welcome to the Jungle en publient d'autres).
+  <p class="note">Les canaux sont limités : France Travail, et, quand leurs clés sont configurées, La bonne alternance (alternance seulement), Adzuna et Jooble, toutes par API officielle. LinkedIn, l'APEC et Welcome to the Jungle n'en font pas partie : leurs conditions d'utilisation interdisent la collecte automatique.
+  Adzuna et Jooble n'ont pas de code ROME : leurs offres sont rangées sous le métier dont le mot-clé les a trouvées, une approximation. Les agrégateurs reprennent aussi des offres d'autres sites : un doublon est retiré quand l'employeur, l'intitulé et le département coïncident, mais une même offre rédigée autrement peut rester comptée deux fois.
   Les salaires sont ceux des offres qui les affichent, moins d'un tiers : biais probable vers le bas et vers les PME ; le net mensuel est une estimation (brut × 0,78 / 12, avant impôt sur le revenu).
   Le niveau de poste (assistant·e, chargé·e, responsable, directeur·rice) est déduit de l'intitulé de l'annonce : c'est une approximation, un « chef de projet » n'encadre pas toujours.
   La formation et la qualification ne sont renseignées que par une minorité d'annonces : les pourcentages qui s'y rapportent portent sur ce petit sous-ensemble, pas sur tout le marché.
@@ -35,7 +36,7 @@
   <footer id="pied"></footer>
 </main>
 
-<script src="assets/commun.js?v=5"></script>
+<script src="assets/commun.js?v=6"></script>
 <script>
 /* ============ Le marché bouge ============ */
 function rendre(offres, D) {

@@ -103,7 +103,10 @@ const libContratOffre = o => ({ stage: "Stage", alt: "Alternance" })[familleCont
 const SOURCE_DEFAUT = "France Travail";
 const sourceDe = o => o.source || SOURCE_DEFAUT;
 const libSource = o => sourceDe(o) + (o.partenaire ? " · via " + o.partenaire : "");
-const etiqSource = o => `<span class="etiq source" title="Source de l'annonce">${libSource(o)}</span>`;
+// Une couleur par source, reprise par l'étiquette des offres et par la case du filtre.
+const COUL_SOURCES = { "France Travail": "#1a5fb4", "La bonne alternance": "#1a9e77", "Adzuna": "#7b3fe4", "Jooble": "#c25e00" };
+const couleurSource = s => COUL_SOURCES[s] || "#6e6e73";
+const etiqSource = o => `<span class="etiq source" style="color:${couleurSource(sourceDe(o))}" title="Source de l'annonce">${libSource(o)}</span>`;
 
 /* Une offre ouverte aux débutants. L'accueil annonce ce chiffre dans son lien vers
    « Ce qu'on vous demande », qui l'affiche aussi : une seule règle écrite une fois,
@@ -293,6 +296,7 @@ function poserNavEtFiltres() {
   const p = document.getElementById("pied");
   if (p) p.innerHTML =
     `<p style="margin:0 0 8px"><a href="mouvement.html#limites">Limites de ces chiffres</a></p>
+     Sources : API France Travail (<code>scripts/extraire.py</code>) ; La bonne alternance, Adzuna et Jooble, par leurs API officielles (<code>scripts/autres_sources.py</code>), quand leurs clés sont configurées.<br>
      Chaîne : API France Travail → <code>scripts/extraire.py</code> → <code>data/brut/</code> (chaque version d'annonce, une seule fois) + <code>data/actives/</code> (les offres du jour) → <code>scripts/resumer.py</code> → <code>data/resume.json</code> → ces pages (GitHub Pages).
      Une Action GitHub relance la collecte chaque matin à 7 h. Identifiants dans les secrets du dépôt, jamais dans le code.
      Dépôt de démonstration — M2 MOD, IAE Clermont Auvergne, séminaires métiers.`;
@@ -457,7 +461,7 @@ const Commun = {
       // Sources : France Travail, et les autres sources une fois branchées (resume.json, clé « sources »).
       const sources = Array.isArray(d.sources) && d.sources.length ? d.sources : [SOURCE_DEFAUT];
       document.getElementById("f-sources").innerHTML = sources.map(s =>
-        `<label><input type="checkbox" value="${s}"> ${s} <small></small></label>`).join("");
+        `<label><input type="checkbox" value="${s}"> <i class="pastille" style="background:${couleurSource(s)}"></i> ${s} <small></small></label>`).join("");
       document.getElementById("bloc-sources").hidden = sources.length < 2;
 
       // --- Événements, posés une fois : les cases de métiers et de groupes changent avec l'onglet ---
