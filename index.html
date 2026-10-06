@@ -9,7 +9,8 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet.markercluster@1.5.3/dist/MarkerCluster.min.css">
 <script src="https://cdn.jsdelivr.net/npm/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-<link rel="stylesheet" href="assets/commun.css?v=4">
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+<link rel="stylesheet" href="assets/commun.css?v=7">
 </head>
 <body>
 <main>
@@ -39,9 +40,12 @@
     <div id="map"></div>
     <p class="note" id="note-carte"></p></div>
   <div class="grille" style="margin-top:16px">
-    <div class="carte"><h3>Par département <small>— les 15 premiers</small></h3><div class="zone"><canvas id="g-departements"></canvas></div></div>
-    <div class="carte"><h3>Par type de contrat</h3><div class="zone"><canvas id="g-contrats"></canvas></div>
-      <p class="note">« Franchise », « Profession libérale » et « Profession commerciale » ne sont pas des emplois salariés : il s'agit de travailler à son compte. Le filtre « Indépendant », en haut, les regroupe.</p></div>
+    <div class="carte"><h3><span id="t-departements">Par département</span> <small>— les 15 premiers départements, en nombre d'offres ; le Puy-de-Dôme est toujours affiché, avec son rang</small></h3>
+      <div class="zone"><canvas id="g-departements"></canvas></div><p class="src" id="s-departements"></p></div>
+    <div class="carte"><h3><span id="t-contrats">Par type de contrat</span> <small>— part des offres sélectionnées, mêmes familles que le filtre</small></h3>
+      <div class="zone"><canvas id="g-contrats"></canvas></div>
+      <p class="note">En gris, « Indépendant » : franchise, profession libérale ou commerciale. Ce ne sont pas des emplois salariés, il s'agit de travailler à son compte.</p>
+      <p class="src" id="s-contrats"></p></div>
   </div>
 
   <!-- ============ 4. LE RESTE, PAGE PAR PAGE ============ -->
@@ -49,14 +53,14 @@
   <div class="liens">
     <a class="lien" href="salaires.html"><b>Rémunération</b><span><i id="cle-salaires">—</i> — fourchettes par niveau, par métier, par contrat, et Île-de-France ou ailleurs.</span></a>
     <a class="lien" href="exigences.html"><b>Missions</b><span><i id="cle-exigences">—</i> — expérience, formation, outils et compétences cités dans les annonces.</span></a>
-    <a class="lien" href="recruteurs.html"><b>Qui recrute ?</b><span><i id="cle-recruteurs">—</i> — entreprises, secteurs, niveau de poste par métier, et les dernières offres.</span></a>
+    <a class="lien" href="recruteurs.html"><b>Qui recrute ?</b><span><i id="cle-recruteurs">—</i> — entreprises, secteurs, employeurs ouverts aux débutants, et les dernières offres.</span></a>
     <a class="lien" href="mouvement.html"><b>Les évolutions</b><span><i id="cle-mouvement">—</i> — les extractions successives, la fraîcheur des annonces, et les limites de ces chiffres.</span></a>
   </div>
 
   <footer id="pied"></footer>
 </main>
 
-<script src="assets/commun.js?v=4"></script>
+<script src="assets/commun.js?v=7"></script>
 <script>
 /* ============ Accueil : chiffres, carte, départements, contrats ============ */
 let carte, calque;
@@ -74,6 +78,7 @@ function rendre(offres, D) {
     [offres.filter(o => o.dep === "63").length, "dans le Puy-de-Dôme"],
     [offres.filter(o => AURA.has(o.dep)).length, "en Auvergne-Rhône-Alpes"],
     [offres.filter(o => familleContrat(o) === "alt").length, "en alternance"],
+    [offres.filter(o => familleContrat(o) === "stage").length, "en stage"],
     [pct(debutants, n) + " %", `acceptent un débutant (${debutants})`],
     [pct(avecSal.length, n) + " %", `affichent un salaire (${avecSal.length})`],
     [avecSal.length ? euro(mediane(mins), 100) + " → " + euro(mediane(maxs), 100) : "—", "brut annuel affiché, médiane des minima → des maxima"],
@@ -91,7 +96,7 @@ function rendre(offres, D) {
     if (o.lat == null) continue;
     places++;
     const m = L.circleMarker([o.lat, o.lon], { radius: 6, color: "#fff", weight: 1, fillColor: couleurMetier(o.rome), fillOpacity: o.prec === "departement" ? .45 : .9 });
-    m.bindPopup(`<b>${o.intitule}</b>${o.entreprise || "employeur non précisé"} · ${o.lieu || ""}<br>${libContratOffre(o)}${salaireCourt(o) ? " · " + salaireCourt(o) : ""}<br><span style="color:#888">${(lib[o.rome] && lib[o.rome].libelle) || o.rome} · ${libNiv(niv(o))}${o.prec !== "offre" ? " · position : " + o.prec : ""}</span>`, { closeButton: false });
+    m.bindPopup(`<b>${o.intitule}</b>${o.entreprise || "employeur non précisé"} · ${o.lieu || ""}<br>${libContratOffre(o)}${salaireCourt(o) ? " · " + salaireCourt(o) : ""}<br><span style="color:#888">${libSource(o)} · ${(lib[o.rome] && lib[o.rome].libelle) || o.rome} · ${libNiv(niv(o))}${o.prec !== "offre" ? " · position : " + o.prec : ""}</span>`, { closeButton: false });
     m.on("mouseover", function () { this.openPopup(); });
     m.on("mouseout", function () { this.closePopup(); });
     if (o.url) m.on("click", () => window.open(o.url, "_blank", "noopener"));
@@ -100,12 +105,27 @@ function rendre(offres, D) {
   document.getElementById("note-carte").textContent =
     `${places} offres placées, ${n - places} sans lieu précis (« France », « Île-de-France »…). Les chiffres sont des grappes : cliquez pour zoomer, molette ou boutons pour naviguer. Point pâle : placé au centre du département.`;
 
-  const deps = compter(offres, o => o.dep || null).slice(0, 15);
-  barres("g-departements", deps.map(x => x[0]), deps.map(x => x[1]));
-  // Le détail des contrats, avec l'alternance sortie des CDI/CDD qui la portent :
-  // ce graphique dit alors la même chose que le filtre, en un peu plus précis.
-  const contrats = compter(offres, libContratOffre);
-  barres("g-contrats", contrats.map(x => x[0]), contrats.map(x => x[1]), true, " offres");
+  // Départements : nom en clair, valeur au bout de la barre, et le Puy-de-Dôme toujours présent.
+  const tousDeps = compter(offres, depDe), deps = tousDeps.slice(0, 15);
+  const rang63 = tousDeps.findIndex(x => x[0] === "63");
+  if (rang63 >= 15) deps.push(tousDeps[rang63]);
+  const ACCENT = "#7a0f45", rangFr = r => r === 0 ? "1er" : (r + 1) + "e";
+  barres("g-departements", deps.map(x => libDep(x[0]) + (x[0] === "63" ? ` — ${rangFr(rang63)}` : "")), deps.map(x => x[1]),
+    { teinte: deps.map(x => x[0] === "63" ? ACCENT : couleur), parBarre: 24, marge: 56 });
+  const places2 = tousDeps.reduce((t, x) => t + x[1], 0);
+  if (deps.length) titre("t-departements", `${libDep(deps[0][0]).replace(/ \(.*/, "")} concentre ${pct(deps[0][1], places2)} % des offres localisées`
+    + (rang63 >= 0 ? ` ; le Puy-de-Dôme en compte ${tousDeps[rang63][1]} (${rangFr(rang63)} département)` : " ; aucune dans le Puy-de-Dôme"));
+  source("s-departements", offres.filter(o => depDe(o)), "offres dont le département est connu");
+
+  // Contrats : les sept familles du filtre, en part des offres ; « Autre » en dernier, « Indépendant » en gris.
+  const fam = CONTRATS.map(([k, l]) => ({ k, l, v: offres.filter(o => familleContrat(o) === k).length })).filter(x => x.v > 0)
+    .sort((a, b) => (a.k === "autre") - (b.k === "autre") || b.v - a.v);
+  barres("g-contrats", fam.map(x => x.l), fam.map(x => x.v),
+    { teinte: fam.map(x => x.k === "indep" || x.k === "autre" ? GRIS : couleur), texte: v => `${pct(v, n)} %  (${nombre(v)})`, marge: 104 });
+  const salaries = fam.filter(x => x.k !== "indep" && x.k !== "autre").slice(0, 2), indep = fam.find(x => x.k === "indep");
+  if (salaries.length) titre("t-contrats", salaries.map(x => `${pct(x.v, n)} % ${x.k === "alt" ? "d'alternance" : x.k === "mis" ? "d'intérim" : "de " + x.l.replace("Stage", "stages")}`).join(", ")
+    + (indep && pct(indep.v, n) >= 5 ? ` — et ${pct(indep.v, n)} % d'offres qui ne sont pas des emplois salariés` : ""));
+  source("s-contrats", offres);
 
   /* ---- Le chiffre-clé de chaque page ---- */
   const employeurs = new Set(offres.map(o => o.entreprise).filter(Boolean)).size;
@@ -126,7 +146,8 @@ const FONDS = {
   gris: L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}", { maxZoom: 16, attribution: "Tiles &copy; Esri, HERE, Garmin, OpenStreetMap" }),
   osm: L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "&copy; OpenStreetMap" }),
 };
-carte = L.map("map", { scrollWheelZoom: true, zoomSnap: .5, zoomControl: true }).setView(...VUES.france);
+// Ouverture sur Auvergne-Rhône-Alpes : le public du site est à Clermont. Le bouton « France » élargit.
+carte = L.map("map", { scrollWheelZoom: true, zoomSnap: .5, zoomControl: true }).setView(...VUES.aura);
 FONDS.gris.addTo(carte);
 // Grappes : un chiffre par zone tant qu'on est loin, les points individuels dès qu'on zoome.
 calque = L.markerClusterGroup({

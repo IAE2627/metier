@@ -1,6 +1,7 @@
 # La veille : chaque matin, GitHub lance l'extraction France Travail sur ses machines,
 # met à jour data/ et le résumé de la page, et enregistre le tout par un commit.
-# Les identifiants sont dans Settings -> Secrets and variables -> Actions (FT_CLIENT_ID, FT_CLIENT_SECRET).
+# Les identifiants sont dans Settings -> Secrets and variables -> Actions (FT_CLIENT_ID, FT_CLIENT_SECRET,
+# et, facultatifs, LBA_API_KEY, ADZUNA_APP_ID, ADZUNA_APP_KEY, JOOBLE_KEY pour les autres sources).
 name: veille
 
 on:
@@ -23,13 +24,27 @@ jobs:
 
       - run: pip install -r requirements.txt
 
-      - name: Extraire les offres et refaire le résumé
+      # Une panne de l'API ne bloque pas la chaîne : l'étape est marquée en échec (visible dans
+      # l'onglet Actions), mais le résumé et le commit tournent quand même sur ce qui a été collecté.
+      - name: Extraire les offres France Travail
+        continue-on-error: true
         env:
           FT_CLIENT_ID: ${{ secrets.FT_CLIENT_ID }}
           FT_CLIENT_SECRET: ${{ secrets.FT_CLIENT_SECRET }}
-        run: |
-          python scripts/extraire.py
-          python scripts/resumer.py
+        run: python scripts/extraire.py
+
+      # Les autres sources : une source sans clé est ignorée, une source en panne n'arrête rien.
+      - name: Extraire les autres sources (La bonne alternance, Adzuna, Jooble)
+        continue-on-error: true
+        env:
+          LBA_API_KEY: ${{ secrets.LBA_API_KEY }}
+          ADZUNA_APP_ID: ${{ secrets.ADZUNA_APP_ID }}
+          ADZUNA_APP_KEY: ${{ secrets.ADZUNA_APP_KEY }}
+          JOOBLE_KEY: ${{ secrets.JOOBLE_KEY }}
+        run: python scripts/autres_sources.py
+
+      - name: Refaire le résumé
+        run: python scripts/resumer.py
 
       - name: Enregistrer la donnée du jour (commit + push)
         run: |

@@ -15,6 +15,13 @@ Ce que ça écrit :
 Les identifiants sont lus dans le fichier .env (voir .env.example) ou dans l'environnement
 (secrets GitHub Actions). API : https://francetravail.io/data/api/offres-emploi —
 150 offres par appel, 1 150 par requête, total réel dans l'en-tête Content-Range.
+
+Les stages : l'API n'a pas de type de contrat « stage » (typeContrat = CDI, CDD, MIS, SAI, LIB…,
+et natureContrat E2 = contrat d'apprentissage, pas un stage). Un stage publié sur France Travail
+arrive donc sous un type de contrat quelconque, souvent CDI ou CDD, avec « Stage » dans l'intitulé.
+La requête codeROME ne filtre aucun contrat : elle ramène déjà les stages. Si un métier dépasse
+le plafond de 1 150 offres, une seconde requête codeROME + motsCles=stage rattrape ceux qui
+seraient tombés au-delà. Le libellé « Stage » est posé par scripts/resumer.py (est_stage).
 """
 import argparse
 import csv
@@ -131,13 +138,28 @@ def obtenir_token():
     return r.json()["access_token"]
 
 
+def appeler(url, params, token, essais=3):
+    """GET avec quelques nouvelles tentatives : une coupure réseau ou un 429/5xx passager ne doit
+    pas faire perdre la journée. Au-delà, RuntimeError : l'appelant ignore ce métier et continue."""
+    for i in range(essais):
+        try:
+            r = requests.get(url, params=params, headers={"Authorization": f"Bearer {token}"}, timeout=30)
+        except requests.RequestException as e:
+            erreur = f"réseau : {e.__class__.__name__}"
+        else:
+            if r.status_code not in (429, 500, 502, 503, 504):
+                return r
+            erreur = f"{r.status_code} : {r.text[:200]}"
+        time.sleep(2 * (i + 1))
+    raise RuntimeError(erreur)
+
+
 def chercher(token, params, pas=150, maximum=1150):
     """Pagine la recherche ; renvoie (liste d'offres, total annoncé par l'API dans Content-Range)."""
     offres, total, debut = [], None, 0
     while debut < maximum:
         fin = min(debut + pas - 1, maximum - 1)
-        r = requests.get(SEARCH_URL, params=dict(params, range=f"{debut}-{fin}"),
-                         headers={"Authorization": f"Bearer {token}"}, timeout=30)
+        r = appeler(SEARCH_URL, dict(params, range=f"{debut}-{fin}"), token)
         if r.status_code == 204:                     # aucune offre
             break
         if r.status_code not in (200, 206):
@@ -178,7 +200,11 @@ def main():
     ap.add_argument("--rome", default="", help="un seul code ROME de METIERS, pour essayer")
     args = ap.parse_args()
 
-    token = obtenir_token()
+    try:
+        token = obtenir_token()
+    except requests.RequestException as e:
+        # Sortie en erreur, mais le workflow continue : le résumé se refait sur la dernière extraction.
+        sys.exit(f"Connexion à l'API France Travail impossible : {e}")
     print("Connexion à l'API France Travail : OK")
     if args.verifier:
         return
@@ -201,6 +227,14 @@ def main():
         except RuntimeError as e:
             print(f"{code}  {METIERS[code][0]:<48} ignoré — {e}")
             continue
+        # Plafond de 1 150 atteint : les stages au-delà seraient perdus, on les demande à part.
+        if total is not None and total > len(offres):
+            try:
+                deja = {o["id"] for o in offres}
+                stages, _ = chercher(token, {"codeROME": code, "motsCles": "stage"})
+                offres += [o for o in stages if o["id"] not in deja]
+            except RuntimeError as e:
+                print(f"{code}  complément « stage » ignoré — {e}")
         nouvelles = modifiees = 0
         with (RACINE / "data" / "brut" / mois / f"{code}.jsonl").open("a", encoding="utf-8") as brut:
             for o in offres:

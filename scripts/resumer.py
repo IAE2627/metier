@@ -13,6 +13,13 @@ C'est ici que la donnée brute est retravaillée :
   - niveau de poste déduit de l'intitulé (assistant / chargé / responsable / directeur / autre),
     nature du contrat (apprentissage, professionnalisation, salarié, non salarié) et libellés
     lisibles des codes de contrat (clé « contrats » du résumé).
+  - stage : l'API n'a pas de type de contrat « stage » ; une offre est un stage quand son
+    intitulé le dit (est_stage). La page la range alors sous le libellé unique « Stage ».
+  - source : chaque offre porte sa source (France Travail, La bonne alternance, Adzuna, Jooble)
+    et, si l'annonce vient d'un site partenaire de France Travail, le nom de ce partenaire ;
+    dedoublonner() retire les doublons entre sources (même employeur, intitulé proche, même
+    département), en gardant la source la plus prioritaire (ordre de SOURCES).
+    Les offres des autres sources sont lues dans data/autres/ (scripts/autres_sources.py).
   - exigences : exp_exige, exp_ans (années, 0 = débutant accepté), qualification, formation
     (niveau le plus élevé demandé), secteur, temps (plein/partiel), postes.
 La page recalcule ensuite tous les comptages côté navigateur, selon les métiers cochés.
@@ -22,6 +29,7 @@ import json
 import re
 import sys
 import time
+import unicodedata
 from collections import defaultdict
 from pathlib import Path
 
@@ -30,6 +38,7 @@ import requests
 RACINE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RACINE / "scripts"))
 from extraire import METIERS, ONGLETS  # noqa: E402  (la liste des métiers vit dans un seul fichier)
+import autres_sources  # noqa: E402  (La bonne alternance, Adzuna, Jooble : data/autres/)
 
 # Les outils et compétences que l'on cherche dans les annonces : c'est VOTRE grille, adaptez-la.
 # Chaque entrée : libellé affiché -> variantes cherchées (mot entier, insensible à la casse).
@@ -101,6 +110,16 @@ NATURES = [
     ("contrat travail", "salarie"),
 ]
 
+# Stage : « Stage », « Stagiaire », « STAGE - … » dans l'intitulé. « Alternance ou stage » reste
+# une alternance quand France Travail l'a codée en apprentissage ou professionnalisation.
+MOTIF_STAGE = re.compile(r"\bstag(e|iaire|iaires)\b", re.IGNORECASE)
+MOTIF_ALTERNANCE = re.compile(r"alternan|apprenti|contrat pro", re.IGNORECASE)
+
+SOURCE_FT = "France Travail"
+# Ordre d'affichage et de priorité : en cas de doublon, l'offre de la première source est gardée.
+# France Travail d'abord (c'est la veille de référence), puis le service public, puis les agrégateurs.
+SOURCES = [SOURCE_FT, "La bonne alternance", "Adzuna", "Jooble"]
+
 # Niveau de formation demandé : du plus faible au plus élevé (l'ordre sert aussi à l'affichage).
 FORMATIONS = ["< Bac", "Bac", "Bac+2", "Bac+3/4", "Bac+5"]
 
@@ -128,6 +147,53 @@ def nature(o):
         if motif in lib:
             return cle
     return "autre"
+
+
+def est_stage(o):
+    """True si l'intitulé annonce un stage, sauf alternance déclarée comme telle."""
+    return stage_intitule(o.get("intitule"), nature(o))
+
+
+def stage_intitule(intitule, nat):
+    """« Stage - Assistant marketing » -> True ; « Alternance ou stage » codée en apprentissage -> False."""
+    t = intitule or ""
+    if not MOTIF_STAGE.search(t):
+        return False
+    return not (MOTIF_ALTERNANCE.search(t) and nat in ("apprentissage", "professionnalisation"))
+
+
+def partenaire(o):
+    """Le site partenaire d'où France Travail a repris l'annonce (« PMEJOB »…), sinon None."""
+    ps = (o.get("origineOffre") or {}).get("partenaires") or []
+    return ps[0].get("nom") if ps and ps[0].get("nom") else None
+
+
+def cle_doublon(o):
+    """Même employeur + même intitulé (hors H/F, ponctuation, accents) + même département."""
+    def norme(t):
+        t = unicodedata.normalize("NFKD", (t or "").lower())
+        t = "".join(c for c in t if not unicodedata.combining(c))
+        t = re.sub(r"\((h|f)\s*/\s*(h|f)(\s*/\s*x)?\)|\b(h|f)\s*/\s*(h|f)\b", " ", t)
+        return " ".join(re.findall(r"[a-z0-9]+", t))
+    ent = norme(o.get("entreprise"))
+    return (ent, norme(o.get("intitule")), o.get("dep") or "") if ent else None
+
+
+def dedoublonner(offres):
+    """Retire d'une source les offres déjà publiées par une autre (ordre de priorité : SOURCES).
+    Les doublons internes à une même source ne sont pas touchés : ce sont parfois de vrais postes
+    multiples, et la veille France Travail les a toujours comptés."""
+    rang = {s: i for i, s in enumerate(SOURCES)}
+    ordre = sorted(offres, key=lambda o: rang.get(o["source"], len(SOURCES)))
+    vues, gardees = {}, []
+    for o in ordre:
+        k = cle_doublon(o)
+        if k and k in vues and vues[k] != o["source"]:
+            continue
+        if k:
+            vues.setdefault(k, o["source"])
+        gardees.append(o)
+    return gardees
 
 
 def exp_ans(lib):
@@ -225,6 +291,7 @@ class Geocodeur:
         self.dossier.mkdir(parents=True, exist_ok=True)
         self.communes = self._lire("communes.json")
         self.departements = self._lire("departements.json")
+        self.noms = self._lire("noms.json")
         self.appels = 0
 
     def _lire(self, nom):
@@ -267,7 +334,44 @@ class Geocodeur:
                 return p[0], p[1], "departement"
         return None, None, None
 
+    def ville(self, nom):
+        """'Clermont-Ferrand' -> [lat, lon, département] de la commune la plus peuplée de ce nom."""
+        cle = nom.strip().lower()
+        if cle not in self.noms:
+            d = self._get(f"{GEO}/communes?nom={requests.utils.quote(nom)}&fields=centre,codeDepartement"
+                          f"&boost=population&limit=1")
+            self.noms[cle] = (d[0]["centre"]["coordinates"][::-1] + [d[0]["codeDepartement"]]
+                              if d and d[0].get("centre") else None)
+        return self.noms[cle]
+
+    def position_libre(self, o):
+        """Pour les autres sources : (lat, lon, précision, département) à partir de ce qu'elles donnent
+        — coordonnées, code postal, « Lyon (69) » ou seulement un nom de ville."""
+        lieu = o.get("lieu") or ""
+        dep = departement({"codePostal": o.get("cp") or ""})
+        if not dep:
+            m = re.search(r"\((\d{2}|2A|2B)\)", lieu)
+            dep = m.group(1) if m else ""
+        # Coordonnées et code postal connus (La bonne alternance) : rien à chercher de plus.
+        if o.get("lat") is not None and o.get("lon") is not None and dep:
+            return o["lat"], o["lon"], "offre", dep
+        nom = re.split(r"[,(]", lieu)[0].strip()
+        nom = re.sub(r"^\d{5}\s+", "", nom)            # « 75001 Paris » -> « Paris »
+        trouve = self.ville(nom) if nom and nom.lower() not in ("france", "télétravail", "teletravail") else None
+        if trouve and (not dep or trouve[2] == dep):
+            dep = trouve[2]
+        if o.get("lat") is not None and o.get("lon") is not None:
+            return o["lat"], o["lon"], "offre", dep
+        if trouve and trouve[2] == dep:
+            return trouve[0], trouve[1], "commune", dep
+        if dep:
+            p = self.departement(dep)
+            if p:
+                return p[0], p[1], "departement", dep
+        return None, None, None, dep
+
     def sauver(self):
+        (self.dossier / "noms.json").write_text(json.dumps(self.noms, ensure_ascii=False), encoding="utf-8")
         (self.dossier / "communes.json").write_text(json.dumps(self.communes), encoding="utf-8")
         (self.dossier / "departements.json").write_text(json.dumps(self.departements), encoding="utf-8")
 
@@ -316,6 +420,9 @@ def main():
             "contrat": o.get("typeContrat"),
             "experience": o.get("experienceLibelle"),
             "alternance": bool(o.get("alternance")),
+            "stage": est_stage(o),
+            "source": SOURCE_FT,
+            "partenaire": partenaire(o),
             "salaire": (o.get("salaire") or {}).get("libelle"),
             "smin": smin, "smax": smax,
             "date": (o.get("dateCreation") or "")[:10],
@@ -334,7 +441,36 @@ def main():
             "temps": temps_travail(o),
             "postes": int(o.get("nombrePostes") or 1),
         })
+    # Les autres sources, au format commun (scripts/autres_sources.py), ramenées au format de la page.
+    for o in autres_sources.lire(jour):
+        if o.get("rome") not in METIERS:
+            continue
+        t = ((o.get("intitule") or "") + " " + (o.get("description") or "")).lower()
+        lat, lon, precision, dep = geo.position_libre(o)
+        smin, smax = o.get("smin"), o.get("smax")
+        smin = round(smin) if smin and SALAIRE_MIN <= smin <= SALAIRE_MAX else None
+        smax = round(smax) if smax and SALAIRE_MIN <= smax <= SALAIRE_MAX else None
+        offres.append({
+            "id": o["id"], "rome": o["rome"], "intitule": o.get("intitule"),
+            "entreprise": o.get("entreprise"), "lieu": o.get("lieu"), "dep": dep,
+            "lat": lat, "lon": lon, "prec": precision,
+            "contrat": o.get("contrat"), "experience": None,
+            "alternance": bool(o.get("alternance")),
+            "stage": bool(o.get("stage")) or stage_intitule(o.get("intitule"), o.get("nature")),
+            "source": o["source"], "partenaire": None,
+            "salaire": f"Annuel de {smin} Euros à {smax or smin} Euros" if smin else None,
+            "smin": smin, "smax": smax or smin,
+            "date": o.get("date") or jour, "vu_le": jour, "url": o.get("url"),
+            "outils": [nom for nom, rx in REGEX_OUTILS.items() if rx.search(t)],
+            "teletravail": "télétravail" in t,
+            "competences": [], "niveau": niveau(o.get("intitule")),
+            "nature": o.get("nature") or "autre",
+            "exp_exige": None, "exp_ans": None, "qualification": None, "formation": None,
+            "secteur": None, "temps": None, "postes": 1,
+        })
     geo.sauver()
+    avant = len(offres)
+    offres = dedoublonner(offres)
 
     # Série : par jour et par métier
     serie = defaultdict(dict)
@@ -344,8 +480,8 @@ def main():
 
     resume = {
         "date": jour,
-        "source": "France Travail — API Offres d'emploi v2",
-        "requete": "une requête codeROME par métier, France entière",
+        "source": " + ".join(s for s in SOURCES if any(o["source"] == s for o in offres)),
+        "requete": "France Travail : une requête codeROME par métier ; autres sources : voir « Limites »",
         "metiers": [{"code": c, "libelle": l, "groupe": g, "coche": k,
                      "actives": sum(1 for o in offres if o["rome"] == c)}
                     for c, (l, g, k) in METIERS.items()],
@@ -354,6 +490,7 @@ def main():
                      "groupes": [{"nom": g, "codes": codes, "coche": k} for g, (codes, k) in groupes.items()]}
                     for i, (t, groupes) in ONGLETS.items()],
         "outils": list(OUTILS),
+        "sources": [s for s in SOURCES if any(o["source"] == s for o in offres)],
         "contrats": {c: contrat_libelle(c)
                      for c in sorted({o["contrat"] for o in offres if o["contrat"]})},
         "niveaux": NIVEAUX_LIBELLES,
@@ -370,6 +507,8 @@ def main():
         prec[o["prec"]] += 1
     print(f"Écrit : {sortie.relative_to(RACINE)} — {len(offres)} offres actives du {jour}, "
           f"{sortie.stat().st_size // 1024} Ko")
+    print(f"Stages : {sum(o['stage'] for o in offres)} ; doublons entre sources retirés : {avant - len(offres)}")
+    print("Par source : " + ", ".join(f"{s} {sum(o['source'] == s for o in offres)}" for s in SOURCES))
     print(f"Positions : {dict(prec)} ({geo.appels} appels geo.api.gouv.fr)")
     avec = [o for o in offres if o["smin"] is not None]
     part = 100 * len(avec) // len(offres) if offres else 0

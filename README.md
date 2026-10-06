@@ -94,6 +94,23 @@ API France Travail  →  scripts/extraire.py  →  data/brut/<mois>/<ROME>.jsonl
   (libellé texte → min/max annuels bruts), outils cités dans les descriptions
   (grille à adapter), position (lat/lon de l'API, sinon centre de la commune
   via geo.api.gouv.fr, sinon ville principale du département).
+- **Stages** : l'API France Travail n'a pas de type de contrat « stage » (`natureContrat` E2 est
+  l'apprentissage). Un stage y est publié en CDI/CDD avec « Stage » ou « Stagiaire » dans l'intitulé :
+  `resumer.py` (`est_stage`) le repère et la page le range sous le libellé unique **Stage**
+  (filtre, compteurs, graphiques, dans les trois onglets). Si un métier dépasse le plafond de
+  1 150 offres, `extraire.py` relance `codeROME` + `motsCles=stage` pour ne pas perdre de stages.
+- **Autres sources** — `scripts/autres_sources.py` interroge, par leurs API officielles,
+  La bonne alternance (offres d'alternance, déjà classées par code ROME), Adzuna et Jooble
+  (agrégateurs, interrogés avec un mot-clé par métier : `MOTS_CLES`). Chaque offre est écrite au
+  format commun dans `data/autres/<source>/<date>.jsonl` (3 jours gardés), que `resumer.py` fusionne
+  avec France Travail. Clés facultatives, dans `.env` ou les secrets du dépôt : `LBA_API_KEY`,
+  `ADZUNA_APP_ID` + `ADZUNA_APP_KEY`, `JOOBLE_KEY` ; une source sans clé est ignorée, une source en
+  panne n'arrête ni les autres ni le déploiement. LinkedIn, APEC, Indeed et Welcome to the Jungle
+  restent exclus : leurs conditions d'utilisation interdisent la collecte automatique.
+- **Sources** : chaque offre porte `source` (« France Travail ») et `partenaire` (le site d'où
+  France Travail l'a reprise : PMEJOB, Directemploi…), affichés en étiquette. Le filtre « Source »
+  apparaît dès que `resume.json` en liste plusieurs ; `dedoublonner()` retire alors les doublons
+  entre sources (même employeur + même intitulé normalisé + même département, France Travail gardée).
 - Cinq pages HTML statiques, un chantier par page, toutes servies telles quelles.
   Chacune charge `data/resume.json` et recalcule ses graphiques Chart.js dans le
   navigateur selon la sélection ; net mensuel estimé = brut × 0,78 / 12.

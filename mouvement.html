@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Les évolutions — les métiers du marketing</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-<link rel="stylesheet" href="assets/commun.css?v=4">
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+<link rel="stylesheet" href="assets/commun.css?v=7">
 </head>
 <body>
 <main>
@@ -16,14 +17,19 @@
   <div id="filtres-ici"></div>
 
   <div class="grille" style="margin-top:24px">
-    <div class="carte"><h3>Offres actives à chaque extraction</h3><div class="zone"><canvas id="g-serie"></canvas></div>
-      <p class="note" id="note-serie"></p></div>
-    <div class="carte"><h3>Fraîcheur des annonces</h3><div class="zone"><canvas id="g-fraicheur"></canvas></div>
-      <p class="note">Une annonce en ligne depuis plus de trois mois est souvent déjà pourvue, ou republiée en continu par une agence : candidatez d'abord aux fraîches.</p></div>
+    <div class="carte large"><h3><span id="t-serie">Ce qui entre et ce qui sort entre deux extractions</span> <small>— à droite les nouvelles annonces, à gauche celles qui ont quitté le stock, à chaque extraction France Travail</small></h3>
+      <div class="cles"><span><i style="background:#e0197d"></i>nouvelles annonces</span><span><i style="background:#b4b4bc"></i>annonces sorties du stock</span></div>
+      <div class="zone"><canvas id="g-serie"></canvas></div>
+      <p class="note" id="note-serie"></p><p class="src" id="s-serie"></p></div>
+    <div class="carte large"><h3><span id="t-fraicheur">Fraîcheur des annonces</span> <small>— répartition des offres sélectionnées selon leur ancienneté</small></h3>
+      <div class="zone"><canvas id="g-fraicheur"></canvas></div>
+      <p class="note">Une annonce en ligne depuis plus de trois mois est souvent déjà pourvue, ou republiée en continu par une agence : candidatez d'abord aux fraîches.</p>
+      <p class="src" id="s-fraicheur"></p></div>
   </div>
 
   <h2 id="limites">Ce que ces chiffres n'autorisent pas à conclure</h2>
-  <p class="note">Un seul canal : France Travail n'héberge pas toutes les offres cadres (APEC, LinkedIn, Welcome to the Jungle en publient d'autres).
+  <p class="note">Les canaux sont limités : France Travail, et, quand leurs clés sont configurées, La bonne alternance (alternance seulement), Adzuna et Jooble, toutes par API officielle. LinkedIn, l'APEC et Welcome to the Jungle n'en font pas partie : leurs conditions d'utilisation interdisent la collecte automatique.
+  Adzuna et Jooble n'ont pas de code ROME : leurs offres sont rangées sous le métier dont le mot-clé les a trouvées, une approximation. Les agrégateurs reprennent aussi des offres d'autres sites : un doublon est retiré quand l'employeur, l'intitulé et le département coïncident, mais une même offre rédigée autrement peut rester comptée deux fois.
   Les salaires sont ceux des offres qui les affichent, moins d'un tiers : biais probable vers le bas et vers les PME ; le net mensuel est une estimation (brut × 0,78 / 12, avant impôt sur le revenu).
   Le niveau de poste (assistant·e, chargé·e, responsable, directeur·rice) est déduit de l'intitulé de l'annonce : c'est une approximation, un « chef de projet » n'encadre pas toujours.
   La formation et la qualification ne sont renseignées que par une minorité d'annonces : les pourcentages qui s'y rapportent portent sur ce petit sous-ensemble, pas sur tout le marché.
@@ -35,23 +41,73 @@
   <footer id="pied"></footer>
 </main>
 
-<script src="assets/commun.js?v=4"></script>
+<script src="assets/commun.js?v=7"></script>
 <script>
 /* ============ Le marché bouge ============ */
+/* data/serie.csv : une ligne par métier et par extraction (total, nouvelles). C'est le journal
+   que tient scripts/extraire.py ; il est lu tel quel, pour les flux d'entrée. */
+let journal = null;
+fetch("data/serie.csv", { cache: "no-cache" }).then(r => r.ok ? r.text() : "").then(t => {
+  const [tete, ...lignes] = t.trim().split(/\r?\n/), cols = tete.split(",");
+  const ix = Object.fromEntries(cols.map((c, i) => [c, i]));
+  journal = ix.nouvelles == null ? [] : lignes.map(l => l.split(",")).map(c => ({ date: c[ix.date], rome: c[ix.rome], total: +c[ix.total], nouvelles: +c[ix.nouvelles] }));
+  if (Commun.D) Commun.rafraichir();
+}).catch(() => { journal = []; });
+
 function rendre(offres, D) {
   const f = Commun.f;
 
-  const serie = (D.serie || []).map(j => ({ date: j.date, total: [...f.metiers].reduce((s, c) => s + ((j.par_metier && j.par_metier[c]) || 0), 0) }));
-  dessiner("g-serie", "line",
-    { labels: serie.map(x => dateFr(x.date, true)), datasets: [{ data: serie.map(x => x.total), borderColor: couleur, backgroundColor: pale, fill: true, tension: .2, pointRadius: 4 }] },
-    { scales: { y: { beginAtZero: true } } });
-  document.getElementById("note-serie").textContent = serie.length < 2
-    ? "Une seule extraction pour l'instant : la tendance apparaîtra au fil des jours, l'Action GitHub relance la collecte chaque matin."
-    : `${serie.length} extractions, du ${dateFr(serie[0].date)} au ${dateFr(serie[serie.length - 1].date)}. Ce compte suit les métiers cochés, pas les autres filtres.`;
+  /* ---- Flux : le stock ne bouge presque pas, c'est le renouvellement qui dit quelque chose.
+     Sorties = stock de l'extraction précédente + nouvelles − stock du jour (calcul, pas mesure). ---- */
+  const jours = [...new Set((journal || []).map(x => x.date))].sort().map(date => {
+    const lot = journal.filter(x => x.date === date && f.metiers.has(x.rome));
+    return { date, total: lot.reduce((t, x) => t + x.total, 0), nouvelles: lot.reduce((t, x) => t + x.nouvelles, 0) };
+  });
+  const flux = jours.slice(1).map((j, i) => ({ date: j.date, entrees: j.nouvelles, sorties: Math.max(0, jours[i].total + j.nouvelles - j.total), total: j.total }));
+  const assez = flux.length >= 2;
+  document.getElementById("g-serie").parentNode.hidden = !assez;
+  if (assez) {
+    const haut = Math.max(...flux.map(x => Math.max(x.entrees, x.sorties))) * 1.25;
+    zoneSelonBarres("g-serie", flux.length, 30, 20);
+    dessiner("g-serie", "bar",
+      { labels: flux.map(x => dateFr(x.date, true)),
+        datasets: [
+          { label: "Annonces sorties du stock", data: flux.map(x => -x.sorties), backgroundColor: GRIS, borderRadius: 3 },
+          { label: "Nouvelles annonces", data: flux.map(x => x.entrees), backgroundColor: couleur, borderRadius: 3 } ] },
+      { indexAxis: "y",
+        plugins: { tooltip: { callbacks: { label: c => `${c.dataset.label} : ${nombre(Math.abs(c.parsed.x))}`, afterBody: c => `Stock ce jour-là : ${nombre(flux[c[0].dataIndex].total)} offres` } },
+          datalabels: { display: true, color: ENCRE, font: { size: 12, weight: 600 }, anchor: c => c.datasetIndex ? "end" : "start", align: c => c.datasetIndex ? "right" : "left", offset: 4, formatter: v => (v > 0 ? "+" : v < 0 ? "−" : "") + nombre(Math.abs(v)) } },
+        scales: { x: { stacked: true, display: false, min: -haut, max: haut },
+                  y: { stacked: true, grid: { display: false }, border: { display: false }, ticks: { color: ENCRE, font: { size: 12 } } } } });
+    const prem = jours[0], dern = jours[jours.length - 1], ecart = prem.total ? 100 * (dern.total - prem.total) / prem.total : 0;
+    const moy = k => Math.round(flux.reduce((t, x) => t + x[k], 0) / flux.length);
+    titre("t-serie", (Math.abs(ecart) < 3 ? `Le stock reste stable autour de ${nombre(Math.round(dern.total / 10) * 10)} offres`
+        : `Le stock ${ecart > 0 ? "augmente" : "recule"} de ${Math.abs(Math.round(ecart))} %`)
+      + ` : à chaque extraction, environ ${nombre(moy("entrees"))} annonces entrent et ${nombre(moy("sorties"))} sortent`);
+    document.getElementById("note-serie").textContent =
+      `${jours.length} extractions, du ${dateFr(prem.date)} (${nombre(prem.total)} offres) au ${dateFr(dern.date)} (${nombre(dern.total)} offres). Les sorties sont calculées : stock précédent + nouvelles − stock du jour. Deux extractions éloignées de plusieurs jours cumulent les mouvements de l'intervalle. Ce compte suit les métiers cochés, pas les autres filtres, et France Travail seulement.`;
+  } else {
+    titre("t-serie", "Ce qui entre et ce qui sort entre deux extractions");
+    document.getElementById("note-serie").textContent = "Il faut au moins trois extractions pour lire un renouvellement : la collecte est relancée chaque matin.";
+  }
+  const e = document.getElementById("s-serie");
+  if (e) e.textContent = `Source : France Travail (API Offres d'emploi v2) · journal des extractions data/serie.csv${jours.length ? ` · ${jours.length} extractions jusqu'au ${dateFr(jours[jours.length - 1].date)}` : ""}`;
 
-  const FRAIS = [["Moins de 7 jours", j => j < 7], ["7 à 30 jours", j => j >= 7 && j < 30], ["1 à 3 mois", j => j >= 30 && j < 90], ["Plus de 3 mois", j => j >= 90]];
-  const ages = offres.map(age).filter(j => j != null && j >= 0);
-  barres("g-fraicheur", FRAIS.map(x => x[0]), FRAIS.map(([, test]) => ages.filter(test).length), true, " offres");
+  /* ---- Fraîcheur : un tout découpé en quatre, donc une seule barre à 100 %, du rose vif (frais) au gris. ---- */
+  const FRAIS = [["Moins de 7 jours", j => j < 7, "#e0197d", "#fff"], ["7 à 30 jours", j => j >= 7 && j < 30, "#ee6aab", ENCRE],
+                 ["1 à 3 mois", j => j >= 30 && j < 90, "#f9c6de", ENCRE], ["Plus de 3 mois", j => j >= 90, "#b4b4bc", ENCRE]];
+  const datees = offres.filter(o => { const j = age(o); return j != null && j >= 0; }), ages = datees.map(age);
+  const nb = FRAIS.map(([, test]) => ages.filter(test).length), tot = ages.length || 1;
+  document.getElementById("g-fraicheur").parentNode.style.height = "104px";
+  dessiner("g-fraicheur", "bar",
+    { labels: [""], datasets: FRAIS.map(([nom, , teinte, encre], i) => ({ label: nom, data: [100 * nb[i] / tot], backgroundColor: teinte, encre, borderColor: "#fff", borderWidth: { right: 1 }, barPercentage: 1, categoryPercentage: .9 })) },
+    { indexAxis: "y",
+      plugins: { legend: { display: true, position: "top", align: "start", labels: { boxWidth: 12, boxHeight: 12, padding: 12 } },
+        tooltip: { callbacks: { title: () => "", label: c => `${c.dataset.label} : ${nombre(nb[c.datasetIndex])} offres (${Math.round(c.parsed.x)} %)` } },
+        datalabels: { display: c => c.dataset.data[0] >= 6, color: c => c.dataset.encre, font: { size: 13, weight: 600 }, formatter: v => Math.round(v) + " %" } },
+      scales: { x: { stacked: true, min: 0, max: 100, display: false }, y: { stacked: true, display: false } } });
+  if (ages.length) titre("t-fraicheur", `${pct(nb[0] + nb[1], tot)} % des annonces ont moins d'un mois ; ${pct(nb[0], tot)} % ont moins de 7 jours`);
+  source("s-fraicheur", datees, "offres dont la date de publication est connue");
 }
 
 Commun.demarrer(rendre);

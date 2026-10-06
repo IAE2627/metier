@@ -68,21 +68,102 @@ const COUL_NIV = { assistant: "#f9b8d8", charge: "#ee6aab", responsable: "#c2185
 const ENCRE_FONCEE = new Set(["assistant", "charge", "autre"]);
 const NIVEAUX_DEFAUT = [["assistant", "Assistant·e / junior"], ["charge", "Chargé·e"], ["responsable", "Responsable"], ["directeur", "Directeur·rice"], ["autre", "Autre"]];
 const FORMATIONS_DEFAUT = ["< Bac", "Bac", "Bac+2", "Bac+3/4", "Bac+5"];
-// Six familles de contrat, exclusives : une offre tombe dans une seule.
-const CONTRATS = [["cdi", "CDI"], ["cdd", "CDD"], ["alt", "Alternance"], ["mis", "Intérim"], ["indep", "Indépendant"], ["autre", "Autre"]];
+// Sept familles de contrat, exclusives : une offre tombe dans une seule.
+const CONTRATS = [["cdi", "CDI"], ["cdd", "CDD"], ["stage", "Stage"], ["alt", "Alternance"], ["mis", "Intérim"], ["indep", "Indépendant"], ["autre", "Autre"]];
 const AURA = new Set(["01", "03", "07", "15", "26", "38", "42", "43", "63", "69", "73", "74"]);
 const IDF = new Set(["75", "77", "78", "91", "92", "93", "94", "95"]);
 const EXPS = ["Débutant accepté", "Moins d'un an", "1 à 2 ans", "3 à 4 ans", "5 ans et plus", "Non précisé"];
 
+/* Noms des départements (référentiel officiel), pour écrire « Paris (75) » plutôt que « 75 ». */
+const DEPARTEMENTS = { "01": "Ain", "02": "Aisne", "03": "Allier", "04": "Alpes-de-Haute-Provence", "05": "Hautes-Alpes", "06": "Alpes-Maritimes", "07": "Ardèche", "08": "Ardennes", "09": "Ariège", "10": "Aube", "11": "Aude", "12": "Aveyron", "13": "Bouches-du-Rhône", "14": "Calvados", "15": "Cantal", "16": "Charente", "17": "Charente-Maritime", "18": "Cher", "19": "Corrèze", "2A": "Corse-du-Sud", "2B": "Haute-Corse", "21": "Côte-d'Or", "22": "Côtes-d'Armor", "23": "Creuse", "24": "Dordogne", "25": "Doubs", "26": "Drôme", "27": "Eure", "28": "Eure-et-Loir", "29": "Finistère", "30": "Gard", "31": "Haute-Garonne", "32": "Gers", "33": "Gironde", "34": "Hérault", "35": "Ille-et-Vilaine", "36": "Indre", "37": "Indre-et-Loire", "38": "Isère", "39": "Jura", "40": "Landes", "41": "Loir-et-Cher", "42": "Loire", "43": "Haute-Loire", "44": "Loire-Atlantique", "45": "Loiret", "46": "Lot", "47": "Lot-et-Garonne", "48": "Lozère", "49": "Maine-et-Loire", "50": "Manche", "51": "Marne", "52": "Haute-Marne", "53": "Mayenne", "54": "Meurthe-et-Moselle", "55": "Meuse", "56": "Morbihan", "57": "Moselle", "58": "Nièvre", "59": "Nord", "60": "Oise", "61": "Orne", "62": "Pas-de-Calais", "63": "Puy-de-Dôme", "64": "Pyrénées-Atlantiques", "65": "Hautes-Pyrénées", "66": "Pyrénées-Orientales", "67": "Bas-Rhin", "68": "Haut-Rhin", "69": "Rhône", "70": "Haute-Saône", "71": "Saône-et-Loire", "72": "Sarthe", "73": "Savoie", "74": "Haute-Savoie", "75": "Paris", "76": "Seine-Maritime", "77": "Seine-et-Marne", "78": "Yvelines", "79": "Deux-Sèvres", "80": "Somme", "81": "Tarn", "82": "Tarn-et-Garonne", "83": "Var", "84": "Vaucluse", "85": "Vendée", "86": "Vienne", "87": "Haute-Vienne", "88": "Vosges", "89": "Yonne", "90": "Territoire de Belfort", "91": "Essonne", "92": "Hauts-de-Seine", "93": "Seine-Saint-Denis", "94": "Val-de-Marne", "95": "Val-d'Oise", "971": "Guadeloupe", "972": "Martinique", "973": "Guyane", "974": "La Réunion", "975": "Saint-Pierre-et-Miquelon", "976": "Mayotte", "977": "Saint-Barthélemy", "978": "Saint-Martin" };
+/* Le département d'une offre. Outre-mer : resume.json ne garde que « 97 », le lieu de l'annonce
+   (« 974 - Saint-Louis ») donne le code complet. */
+function depDe(o) {
+  if (o.dep !== "97") return o.dep || null;
+  const m = /^\s*(97\d)/.exec(o.lieu || "");
+  return m ? m[1] : "97";
+}
+const libDep = code => DEPARTEMENTS[code] ? `${DEPARTEMENTS[code]} (${code})` : (code === "97" ? "Outre-mer (97)" : code);
+
+/* Milliers d'euros, une décimale au plus : 22 800 -> « 22,8 », 40 000 -> « 40 ». */
+const kilo = v => (Math.round(v / 100) / 10).toLocaleString("fr-FR");
+const plage = (a, b) => Math.round(a / 100) === Math.round(b / 100) ? `${kilo(a)} k€` : `${kilo(a)} – ${kilo(b)} k€`;
+const nombre = v => Number(v).toLocaleString("fr-FR");
+const pluriel = (k, mot = "offre") => `${nombre(k)} ${mot}${k > 1 ? "s" : ""}`;
+const ETROIT = () => window.innerWidth < 560;
+
+/* « MANPOWER FRANCE » -> « Manpower France » : les noms tout en capitales sont remis en casse
+   de titre ; les sigles courts (EFC, ISCOD, BIO3G) et les noms déjà en minuscules sont laissés. */
+function joliNom(nom) {
+  if (!nom) return nom;
+  const PETITS = new Set(["DE", "DU", "DES", "LA", "LE", "LES", "ET", "EN", "AU", "AUX", "D", "L"]);
+  return nom.split(" ").map((m, i) => {
+    if (m !== m.toUpperCase() || /\d|\./.test(m)) return m;
+    if (i > 0 && PETITS.has(m)) return m.toLowerCase();
+    return m.length <= 5 ? m : m[0] + m.slice(1).toLowerCase();
+  }).join(" ");
+}
+
+/* Profil d'un annonceur, lu dans ses propres annonces (contrat et secteur déclarés) : la donnée
+   ne dit pas « école » ou « plateforme », elle dit seulement ce que l'annonceur publie. */
+const INTERIM = /travail temporaire|placement de main-d'?(œ|oe)uvre|mise à disposition de ressources humaines/i;
+function profilAnnonceur(lot) {
+  const part = test => lot.filter(test).length / (lot.length || 1);
+  if (part(o => familleContrat(o) === "indep") > .5) return "indep";
+  if (part(o => familleContrat(o) === "mis" || INTERIM.test(o.secteur || "")) > .5) return "interim";
+  if (part(o => familleContrat(o) === "alt") > .5) return "alt";
+  return "direct";
+}
+const GRIS = "#b4b4bc", ROSE_PALE = "#f4a3cb";
+const estIntermediaire = profil => profil === "indep" || profil === "interim";
+
+/* Annonces identiques (même employeur, même intitulé) comptées une seule fois : un réseau qui
+   publie 190 fois le même texte ne doit pas peser 190 fois dans une part d'annonces. */
+function sansRepetitions(offres) {
+  const vues = new Set();
+  return offres.filter(o => {
+    if (!o.entreprise) return true;
+    const k = o.entreprise.toLowerCase() + "|" + String(o.intitule || "").toLowerCase().replace(/\(?\b[hf]\s*\/\s*[hf]\b\)?/g, "").replace(/[^a-zà-ÿ0-9]+/g, " ").trim();
+    if (vues.has(k)) return false;
+    vues.add(k); return true;
+  });
+}
+
+/* Le titre d'une carte dit ce qu'il faut retenir ; il est recalculé à chaque changement de filtre. */
+function titre(id, texte) { const e = document.getElementById(id); if (e && texte) e.textContent = texte; }
+/* La ligne de source sous chaque graphique : une capture d'écran reste sourcée. */
+const NOM_SOURCE = { "France Travail": "France Travail (API Offres d'emploi v2)" };
+function source(id, lot, precision = "") {
+  const e = document.getElementById(id);
+  if (!e) return;
+  const noms = [...new Set(lot.map(sourceDe))].sort((a, b) => (a === SOURCE_DEFAUT ? -1 : b === SOURCE_DEFAUT ? 1 : a.localeCompare(b)));
+  e.textContent = `Source : ${noms.map(s => NOM_SOURCE[s] || s).join(" ; ") || NOM_SOURCE[SOURCE_DEFAUT]} · extraction du ${dateFr(D.date)} · n = ${pluriel(lot.length)}${precision ? " · " + precision : ""}`;
+}
+
 Chart.defaults.font.family = "system-ui, -apple-system, 'Segoe UI', sans-serif";
 Chart.defaults.plugins.legend.display = false;
+// Valeurs écrites sur les graphiques (chartjs-plugin-datalabels) : éteintes par défaut, chaque graphique les allume.
+if (window.ChartDataLabels) { Chart.register(ChartDataLabels); Chart.defaults.plugins.datalabels = Object.assign(Chart.defaults.plugins.datalabels || {}, { display: false }); }
+const ENCRE = "#1d1d1f", ENCRE_GRISE = "#6e6e73";
+/* Ligne verticale de repère (ex. la médiane d'ensemble) : options.plugins.repere = { valeur, texte }. */
+Chart.register({ id: "repere", afterDatasetsDraw(c, _a, opt) {
+  if (!opt || opt.valeur == null || !c.scales.x) return;
+  const x = c.scales.x.getPixelForValue(opt.valeur), { top, bottom } = c.chartArea, g = c.ctx;
+  g.save(); g.strokeStyle = ENCRE_GRISE; g.setLineDash([4, 4]); g.lineWidth = 1;
+  g.beginPath(); g.moveTo(x, top); g.lineTo(x, bottom); g.stroke();
+  if (opt.texte) { g.setLineDash([]); g.fillStyle = ENCRE_GRISE; g.font = "11px " + Chart.defaults.font.family; g.textAlign = "center"; g.fillText(opt.texte, x, top - 6); }
+  g.restore();
+} });
 
 let D, graphiques = {};
 let NIVEAUX = NIVEAUX_DEFAUT, FORMATIONS = FORMATIONS_DEFAUT;
 
-/* Famille de contrat d'une offre : l'alternance l'emporte sur le CDI/CDD qui la porte. */
+/* Famille de contrat d'une offre. Le stage d'abord : France Travail n'a pas de contrat « stage »
+   et le range sous un CDI ou un CDD, c'est l'intitulé qui le dit (resumer.py, est_stage).
+   Puis l'alternance, qui l'emporte sur le CDI/CDD qui la porte. */
 function familleContrat(o) {
   const c = o.contrat || "", nat = o.nature || "";
+  if (o.stage) return "stage";
   if (o.alternance || nat === "apprentissage" || nat === "professionnalisation") return "alt";
   if (c === "MIS") return "mis";
   if (c === "LIB" || c === "FRA" || c === "CCE" || nat === "non_salarie") return "indep";
@@ -93,9 +174,17 @@ function familleContrat(o) {
 const niv = o => (o && COUL_NIV[o.niveau]) ? o.niveau : "autre";
 const libNiv = k => (NIVEAUX.find(x => x[0] === k) || [k, k])[1];
 const libContrat = code => (D && D.contrats && D.contrats[code]) || code || "Non précisé";
-/* Le contrat tel qu'on l'annonce au lecteur : l'alternance passe devant le CDI/CDD
-   qui la porte, pour dire partout la même chose que le filtre. */
-const libContratOffre = o => familleContrat(o) === "alt" ? "Alternance" : libContrat(o.contrat);
+/* Le contrat tel qu'on l'annonce au lecteur : le stage et l'alternance passent devant le
+   CDI/CDD qui les porte, pour dire partout la même chose que le filtre. */
+const libContratOffre = o => ({ stage: "Stage", alt: "Alternance" })[familleContrat(o)] || libContrat(o.contrat);
+/* La source d'une offre, et le site partenaire d'où France Travail l'a reprise. */
+const SOURCE_DEFAUT = "France Travail";
+const sourceDe = o => o.source || SOURCE_DEFAUT;
+const libSource = o => sourceDe(o) + (o.partenaire ? " · via " + o.partenaire : "");
+// Une couleur par source, reprise par l'étiquette des offres et par la case du filtre.
+const COUL_SOURCES = { "France Travail": "#1a5fb4", "La bonne alternance": "#1a9e77", "Adzuna": "#7b3fe4", "Jooble": "#c25e00" };
+const couleurSource = s => COUL_SOURCES[s] || "#6e6e73";
+const etiqSource = o => `<span class="etiq source" style="color:${couleurSource(sourceDe(o))}" title="Source de l'annonce">${libSource(o)}</span>`;
 
 /* Une offre ouverte aux débutants. L'accueil annonce ce chiffre dans son lien vers
    « Ce qu'on vous demande », qui l'affiche aussi : une seule règle écrite une fois,
@@ -138,49 +227,35 @@ function dessiner(id, type, data, options) {
   const el = document.getElementById(id);
   if (!el) return null;
   // resize() avant update() : la hauteur de la zone peut avoir changé avec le nombre de barres.
-  if (graphiques[id]) { const g = graphiques[id]; g.data.labels = data.labels; g.data.datasets = data.datasets; g.resize(); g.update(); return g; }
-  graphiques[id] = new Chart(el, { type, data, options: Object.assign({ responsive: true, maintainAspectRatio: false, animation: false }, options) });
+  const opts = Object.assign({ responsive: true, maintainAspectRatio: false, animation: false }, options);
+  // Les options aussi sont reposées : une échelle ou un repère dépendent des filtres.
+  if (graphiques[id]) { const g = graphiques[id]; g.data.labels = data.labels; g.data.datasets = data.datasets; g.options = opts; g.resize(); g.update(); return g; }
+  graphiques[id] = new Chart(el, { type, data, options: opts });
   return graphiques[id];
 }
 
 /* Un graphique en barres horizontales doit grandir avec le nombre de barres :
    sinon Chart.js masque une étiquette sur deux et on ne sait plus qui est qui. */
-function zoneSelonBarres(id, n, parBarre) {
+function zoneSelonBarres(id, n, parBarre = 28, marge = 16) {
   const el = document.getElementById(id);
-  if (el) el.parentNode.style.height = Math.max(220, 56 + n * parBarre) + "px";
+  if (el) el.parentNode.style.height = Math.max(70, marge + n * parBarre) + "px";
 }
 
-/* Barres simples, une seule série. */
-function barres(id, etiquettes, valeurs, horizontal = true, suffixe = "", teinte = couleur) {
+/* Barres horizontales simples, une seule série. La valeur est écrite au bout de la barre :
+   plus besoin d'axe ni de grille. opt : { teinte (une couleur ou une par barre), texte(v, i)
+   pour l'étiquette, parBarre (hauteur d'une ligne) }. */
+function barres(id, etiquettes, valeurs, opt = {}) {
+  const texte = opt.texte || (v => nombre(v));
+  const lignesMax = Math.max(1, ...etiquettes.map(e => Array.isArray(e) ? e.length : 1));
+  zoneSelonBarres(id, etiquettes.length, opt.parBarre || (lignesMax > 1 ? 14 + 14 * lignesMax : 28));
   dessiner(id, "bar",
-    { labels: etiquettes, datasets: [{ data: valeurs, backgroundColor: teinte, borderRadius: 4 }] },
-    { indexAxis: horizontal ? "y" : "x",
-      plugins: { tooltip: { callbacks: { label: c => c.parsed[horizontal ? "x" : "y"] + suffixe } } },
-      scales: { x: { grid: { display: !horizontal }, beginAtZero: true },
-                y: { grid: { display: horizontal }, ticks: { autoSkip: !horizontal } } } });
-}
-
-/* Barres empilées par niveau de poste. */
-function empilees(id, etiquettes, offresParEtiquette, horizontal = false) {
-  // Un niveau décoché dans les filtres n'a plus aucune barre : on le retire aussi de la
-  // légende, sinon elle annonce cinq couleurs dont deux ne sont nulle part sur le graphique.
-  const datasets = NIVEAUX.map(([k, lib]) => ({
-    label: lib, backgroundColor: COUL_NIV[k], borderRadius: 3,
-    data: etiquettes.map((_, i) => (offresParEtiquette[i] || []).filter(o => niv(o) === k).length),
-  })).filter(d => d.data.some(v => v > 0));
-  // Total de chaque barre, pour dire dans l'infobulle « 320 offres sur 900, soit 36 % ».
-  const totaux = etiquettes.map((_, i) => datasets.reduce((s, d) => s + d.data[i], 0));
-  dessiner(id, "bar", { labels: etiquettes, datasets },
-    { indexAxis: horizontal ? "y" : "x",
-      plugins: { legend: { display: true, position: "bottom", labels: { boxWidth: 12, boxHeight: 12, padding: 12 } },
-                 tooltip: { callbacks: {
-                   title: c => `${c[0].label} — ${totaux[c[0].dataIndex]} offres`,
-                   label: c => { const v = c.parsed[horizontal ? "x" : "y"], t = totaux[c.dataIndex];
-                     return `${c.dataset.label} : ${v} offre${v > 1 ? "s" : ""}${t ? ` (${Math.round(100 * v / t)} % de la barre)` : ""}`; } } } },
-      scales: { x: { stacked: true, beginAtZero: true, grid: { display: !horizontal },
-                     title: horizontal ? { display: true, text: "nombre d'offres" } : undefined },
-                y: { stacked: true, beginAtZero: true, grid: { display: horizontal }, ticks: { autoSkip: !horizontal },
-                     title: horizontal ? undefined : { display: true, text: "nombre d'offres" } } } });
+    { labels: etiquettes, datasets: [{ data: valeurs, backgroundColor: opt.teinte || couleur, borderRadius: 3, barPercentage: .78, categoryPercentage: .9 }] },
+    { indexAxis: "y",
+      layout: { padding: { right: opt.marge || 76 } },
+      plugins: { tooltip: { callbacks: { label: c => texte(c.parsed.x, c.dataIndex) } },
+                 datalabels: { display: true, anchor: "end", align: "right", offset: 4, color: ENCRE, font: { size: 12, weight: 600 }, formatter: (v, c) => texte(v, c.dataIndex) } },
+      scales: { x: { display: false, beginAtZero: true },
+                y: { grid: { display: false }, border: { display: false }, ticks: { autoSkip: false, color: ENCRE, font: { size: 12 } } } } });
 }
 
 /* Barres flottantes : de la médiane des minima à la médiane des maxima. */
@@ -190,16 +265,31 @@ function fourchette(lot) {
   const mx = mediane(lot.map(o => (o.smax != null ? o.smax : o.smin)).filter(v => v != null));
   return [mn, Math.max(mx == null ? mn : mx, mn)];
 }
-function flottantes(id, lignes) {
-  // lignes : [{ label, n, paire:[min,max] }]
+/* Bornes d'axe communes à plusieurs graphiques de fourchettes : un axe qui part de zéro
+   laisse un tiers de la largeur vide, une barre flottante n'en a pas besoin. */
+function bornes(paires, pas = 5000) {
+  const v = paires.filter(Boolean).flat();
+  if (!v.length) return {};
+  return { min: Math.max(0, Math.floor((Math.min(...v) - pas * .6) / pas) * pas), max: Math.ceil((Math.max(...v) + pas * .2) / pas) * pas };
+}
+/* lignes : [{ label, n, paire:[min,max], teinte, bord, faible }] ; opt : { min, max, repere:{valeur,texte}, unite(a,b), parBarre } */
+function flottantes(id, lignes, opt = {}) {
+  const ecrit = opt.unite || plage, b = opt.min != null ? opt : bornes(lignes.map(l => l.paire)), etroit = ETROIT();
+  zoneSelonBarres(id, lignes.length, opt.parBarre || (etroit ? 56 : 44), opt.repere ? 62 : 44);
   dessiner(id, "bar",
-    { labels: lignes.map(l => [].concat(l.label, l.n + " offre" + (l.n > 1 ? "s" : ""))),
-      datasets: [{ data: lignes.map(l => l.paire), backgroundColor: lignes.map(l => l.teinte || couleur), borderRadius: 4, borderSkipped: false }] },
+    // Sur un écran étroit, « effectif faible » passe à la ligne : sinon l'étiquette est rognée à gauche.
+    { labels: lignes.map(l => [].concat(l.label, etroit && l.faible ? [pluriel(l.n), "effectif faible"] : pluriel(l.n) + (l.faible ? " · effectif faible" : ""))),
+      datasets: [{ data: lignes.map(l => l.paire), backgroundColor: lignes.map(l => l.teinte || couleur),
+        borderColor: lignes.map(l => l.bord || "transparent"), borderWidth: lignes.map(l => l.bord ? 1.5 : 0),
+        borderRadius: 4, borderSkipped: false, minBarLength: 7, barPercentage: .62 }] },
     { indexAxis: "y",
-      plugins: { tooltip: { callbacks: { label: c => { const r = c.raw || []; return r.length < 2 ? "" :
-        [`${euro(r[0], 100)} → ${euro(r[1], 100)} brut par an`, `soit ${euro(net(r[0]), 10)} → ${euro(net(r[1]), 10)} net par mois`]; } } } },
-      scales: { x: { beginAtZero: true, ticks: { callback: v => Math.round(v / 1000) + " k€" } },
-                y: { grid: { display: true }, ticks: { autoSkip: false } } } });
+      layout: { padding: { right: etroit ? 92 : 104, top: opt.repere ? 18 : 0 } },
+      plugins: { repere: opt.repere || {},
+        tooltip: { callbacks: { label: c => { const r = c.raw || []; return r.length < 2 ? "" : (opt.infobulle ? opt.infobulle(r) :
+          [`${euro(r[0], 100)} → ${euro(r[1], 100)} brut par an`, `soit ${euro(net(r[0]), 10)} → ${euro(net(r[1]), 10)} net par mois`]); } } },
+        datalabels: { display: true, anchor: "end", align: "right", offset: 6, color: ENCRE, font: { size: 12, weight: 600 }, formatter: v => Array.isArray(v) ? ecrit(v[0], v[1]) : "" } },
+      scales: { x: { min: b.min, max: b.max, grid: { display: false }, border: { color: "#d2d2d7" }, ticks: { color: ENCRE_GRISE, maxTicksLimit: 7, callback: opt.graduation || (v => Math.round(v / 1000) + " k€") } },
+                y: { grid: { display: false }, border: { display: false }, ticks: { autoSkip: false, color: ENCRE, font: { size: etroit ? 11 : 12 } } } } });
 }
 
 /* ============================================================
@@ -215,12 +305,16 @@ const couleurMetier = code => couleurGroupe(Commun.groupeDe[code]);
 
 const cochees = sel => new Set([...document.querySelectorAll(sel + " input:checked")].map(i => i.value));
 function etatFiltres() {
-  return { metiers: cochees("#metiers"), contrats: cochees("#f-contrats"), niveaux: cochees("#f-niveaux") };
+  // Le filtre des sources n'est affiché que s'il y en a plusieurs : masqué, il laisse tout passer.
+  const bloc = document.getElementById("bloc-sources");
+  const sources = bloc && !bloc.hidden ? cochees("#f-sources") : null;
+  return { metiers: cochees("#metiers"), contrats: cochees("#f-contrats"), niveaux: cochees("#f-niveaux"), sources };
 }
-/* Les offres retenues par les trois filtres. */
+/* Les offres retenues par les filtres. */
 function filtrer(f) {
   f = f || etatFiltres();
-  return D.offres.filter(o => f.metiers.has(o.rome) && f.contrats.has(familleContrat(o)) && f.niveaux.has(niv(o)));
+  return D.offres.filter(o => f.metiers.has(o.rome) && f.contrats.has(familleContrat(o)) && f.niveaux.has(niv(o))
+    && (!f.sources || f.sources.has(sourceDe(o))));
 }
 
 /* ============================================================
@@ -256,6 +350,10 @@ const HTML_FILTRES = `
       <div class="cases" id="f-niveaux"></div>
       <p class="note" style="margin:8px 0 0">Déduit de l'intitulé de l'annonce. Ces couleurs servent de repère dans toute la page.</p>
     </div>
+    <div id="bloc-sources" hidden>
+      <h3>Source</h3>
+      <div class="cases" id="f-sources"></div>
+    </div>
   </div>
   <p class="compte" id="compte"></p>`;
 
@@ -272,11 +370,12 @@ function poserNavEtFiltres() {
     ? `<div class="carte">${HTML_FILTRES}</div>`
     // Ailleurs : replié, on vient lire une page, pas refaire ses filtres.
     : `<details class="carte"><summary id="resume-filtres">Filtres</summary>${HTML_FILTRES}</details>`)
-    + `<div class="vide" id="aucune" hidden>Aucune offre ne correspond à ces filtres. Recochez un métier, un type de contrat ou un niveau de poste.</div>`;
+    + `<div class="vide" id="aucune" hidden>Aucune offre ne correspond à ces filtres. Recochez un métier, un type de contrat, un niveau de poste ou une source.</div>`;
 
   const p = document.getElementById("pied");
   if (p) p.innerHTML =
     `<p style="margin:0 0 8px"><a href="mouvement.html#limites">Limites de ces chiffres</a></p>
+     Sources : API France Travail (<code>scripts/extraire.py</code>) ; La bonne alternance, Adzuna et Jooble, par leurs API officielles (<code>scripts/autres_sources.py</code>), quand leurs clés sont configurées.<br>
      Chaîne : API France Travail → <code>scripts/extraire.py</code> → <code>data/brut/</code> (chaque version d'annonce, une seule fois) + <code>data/actives/</code> (les offres du jour) → <code>scripts/resumer.py</code> → <code>data/resume.json</code> → ces pages (GitHub Pages).
      Une Action GitHub relance la collecte chaque matin à 7 h. Identifiants dans les secrets du dépôt, jamais dans le code.
      Dépôt de démonstration — M2 MOD, IAE Clermont Auvergne, séminaires métiers.`;
@@ -341,8 +440,14 @@ function poserOnglet(id) {
   majGroupes();
 
   const memoC = memoA("contrats", CONTRATS.map(x => x[0])), memoN = memoA("niveaux", NIVEAUX.map(x => x[0]));
-  document.querySelectorAll("#f-contrats input").forEach(i => { i.checked = memoC.includes(i.value); });
+  // Un type de contrat apparu depuis la mémorisation (ex. « Stage ») arrive coché : sinon ses offres
+  // disparaîtraient en silence pour qui avait déjà réglé ses filtres. Les anciens mémos, sans
+  // « contrats_vus », connaissaient les six familles d'avant le stage.
+  const vus = memoA("contrats_vus", ["cdi", "cdd", "alt", "mis", "indep", "autre"]);
+  document.querySelectorAll("#f-contrats input").forEach(i => { i.checked = memoC.includes(i.value) || !vus.includes(i.value); });
   document.querySelectorAll("#f-niveaux input").forEach(i => { i.checked = memoN.includes(i.value); });
+  const memoS = memoA("sources", null);
+  document.querySelectorAll("#f-sources input").forEach(i => { i.checked = !memoS || memoS.includes(i.value); });
 }
 
 /* La barre d'onglets, avec le nombre d'offres actives de chacun ; masquée s'il n'y en a qu'un. */
@@ -392,6 +497,7 @@ const Commun = {
     // Compteurs dans les cases de filtre + ligne de synthèse
     CONTRATS.forEach(([k]) => { const e = document.getElementById("nb-c-" + k); if (e) e.textContent = parMetier.filter(o => familleContrat(o) === k).length; });
     NIVEAUX.forEach(([k]) => { const e = document.getElementById("nb-n-" + k); if (e) e.textContent = parMetier.filter(o => niv(o) === k).length; });
+    document.querySelectorAll("#f-sources input").forEach(i => { const e = i.parentNode.querySelector("small"); if (e) e.textContent = parMetier.filter(o => sourceDe(o) === i.value).length; });
     document.getElementById("compte").innerHTML = `<b>${n}</b> offre${n > 1 ? "s" : ""} sélectionnée${n > 1 ? "s" : ""} sur ${total}${titre ? " de l'onglet" + titre : ""} — ${f.metiers.size} métier${f.metiers.size > 1 ? "s" : ""} coché${f.metiers.size > 1 ? "s" : ""}.`;
     document.getElementById("aucune").hidden = n > 0;
     const resume = document.getElementById("resume-filtres");
@@ -401,7 +507,8 @@ const Commun = {
     if (n === 0) { const d = document.querySelector("details.carte"); if (d) d.open = true; }
 
     // Mémorisation des trois filtres de l'onglet, et de l'onglet lui-même : ils suivent d'une page à l'autre.
-    Commun.memo.par_onglet[Commun.onglet.id] = { metiers: [...f.metiers], contrats: [...f.contrats], niveaux: [...f.niveaux] };
+    Commun.memo.par_onglet[Commun.onglet.id] = { metiers: [...f.metiers], contrats: [...f.contrats], niveaux: [...f.niveaux],
+      contrats_vus: CONTRATS.map(x => x[0]), sources: f.sources ? [...f.sources] : undefined };
     try { localStorage.setItem("metiers-filtres", JSON.stringify(Commun.memo)); } catch (e) {}
 
     Commun.rendre(offres, D);
@@ -430,6 +537,11 @@ const Commun = {
         `<label><input type="checkbox" value="${k}"> ${l} <small id="nb-c-${k}"></small></label>`).join("");
       document.getElementById("f-niveaux").innerHTML = NIVEAUX.map(([k, l]) =>
         `<label><input type="checkbox" value="${k}"> <i class="pastille" style="background:${COUL_NIV[k]}"></i> ${l} <small id="nb-n-${k}"></small></label>`).join("");
+      // Sources : France Travail, et les autres sources une fois branchées (resume.json, clé « sources »).
+      const sources = Array.isArray(d.sources) && d.sources.length ? d.sources : [SOURCE_DEFAUT];
+      document.getElementById("f-sources").innerHTML = sources.map(s =>
+        `<label><input type="checkbox" value="${s}"> <i class="pastille" style="background:${couleurSource(s)}"></i> ${s} <small></small></label>`).join("");
+      document.getElementById("bloc-sources").hidden = sources.length < 2;
 
       // --- Événements, posés une fois : les cases de métiers et de groupes changent avec l'onglet ---
       document.getElementById("metiers").addEventListener("change", () => { majGroupes(); Commun.rafraichir(); });
@@ -446,6 +558,7 @@ const Commun = {
       }));
       document.getElementById("f-contrats").addEventListener("change", Commun.rafraichir);
       document.getElementById("f-niveaux").addEventListener("change", Commun.rafraichir);
+      document.getElementById("f-sources").addEventListener("change", Commun.rafraichir);
 
       // --- Onglets : le dernier consulté, sinon le premier ---
       Commun.onglets = ongletsDe(d);
