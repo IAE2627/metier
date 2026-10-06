@@ -100,3 +100,26 @@ a.lien span i { font-style:normal; color:var(--accent); font-weight:600; }
 
 @media (max-width:880px) { .filtres { grid-template-columns:1fr; } }
 @media (max-width:480px) { .onglets button { padding:8px 9px; font-size:.9rem; } main { padding:20px 12px 48px; } h1 { font-size:1.45rem; } #map { height:420px; } }
+
+/* ---- Titre-message, source et légendes des graphiques ---- */
+.carte h3 { line-height:1.35; }
+.carte h3 small { display:block; margin-top:2px; font-size:.85rem; }
+.src { color:var(--gris); font-size:.78rem; margin:8px 0 0; }
+.cles { display:flex; gap:14px; flex-wrap:wrap; font-size:.82rem; color:var(--gris); margin:0 0 6px; }
+.cles i { display:inline-block; width:11px; height:11px; border-radius:3px; margin-right:5px; vertical-align:-1px; }
+.annot { background:var(--fond); border-radius:8px; padding:8px 12px; font-size:.9rem; margin:8px 0 0; }
+
+/* ---- Volets d'une page (Rémunération : emplois / stages et alternances) ---- */
+.volets { display:flex; gap:8px; flex-wrap:wrap; margin:24px 0 0; }
+.volets button { font:inherit; font-size:.95rem; padding:7px 16px; border:1px solid var(--trait); border-radius:99px; background:var(--carte); color:var(--gris); cursor:pointer; }
+.volets button[aria-selected="true"] { border-color:var(--accent); color:var(--accent); font-weight:600; }
+.volets button small { font-weight:400; margin-left:2px; }
+
+/* ---- Tableau coloré (outils × niveau de poste) ---- */
+.tableau { overflow-x:auto; }
+.chaleur { border-collapse:separate; border-spacing:3px; width:100%; font-size:.88rem; }
+.chaleur th { font-weight:600; text-align:center; padding:4px 6px; vertical-align:bottom; }
+.chaleur th small { display:block; font-weight:400; color:var(--gris); }
+.chaleur th[scope=row] { text-align:left; font-weight:400; white-space:nowrap; padding-right:12px; }
+.chaleur td { text-align:center; padding:6px 4px; border-radius:5px; min-width:64px; font-variant-numeric:tabular-nums; }
+@media (max-width:560px) { .chaleur { font-size:.74rem; border-spacing:2px; } .chaleur td { min-width:38px; padding:6px 1px; } .chaleur th { padding:4px 2px; } .chaleur th[scope=row] { white-space:normal; padding-right:4px; } }

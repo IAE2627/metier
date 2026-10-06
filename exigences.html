@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Missions — les métiers du marketing</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-<link rel="stylesheet" href="assets/commun.css?v=6">
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+<link rel="stylesheet" href="assets/commun.css?v=7">
 </head>
 <body>
 <main>
@@ -17,17 +18,21 @@
 
   <div class="chiffres" id="chiffres-demande" style="margin-top:24px"></div>
   <div class="grille" style="margin-top:16px">
-    <div class="carte"><h3>Combien d'expérience faut-il ? <small>— chaque barre est découpée par niveau de poste : la couleur dit qui est concerné</small></h3><div class="zone"><canvas id="g-experience"></canvas></div></div>
-    <div class="carte"><h3>Quel diplôme demande-t-on ? <small id="sous-formation">— seules les offres qui le précisent, découpées par niveau de poste</small></h3><div class="zone"><canvas id="g-formation"></canvas></div></div>
-    <div class="carte large"><h3>Quels outils faut-il savoir utiliser ? <small>— sur 100 offres d'un même niveau de poste, combien citent l'outil ; une barre par niveau</small></h3><div class="zone geante"><canvas id="g-outils"></canvas></div>
-      <p class="note" id="note-outils"></p></div>
-    <div class="carte large"><h3>Les compétences que France Travail associe à ces offres <small>— les 12 plus fréquentes ; c'est le codage officiel de l'annonce, pas nos mots-clés</small></h3><div class="zone haute"><canvas id="g-competences"></canvas></div></div>
+    <div class="carte large"><h3><span id="t-experience">Combien d'expérience faut-il ?</span> <small>— pour 100 offres d'un même niveau de poste, l'expérience demandée ; plus le rose est foncé, plus il en faut</small></h3>
+      <div class="zone"><canvas id="g-experience"></canvas></div><p class="src" id="s-experience"></p></div>
+    <div class="carte large"><h3><span id="t-formation">Quel diplôme demande-t-on ?</span> <small id="sous-formation">— part des offres qui précisent un niveau de formation</small></h3>
+      <div class="zone"><canvas id="g-formation"></canvas></div><p class="src" id="s-formation"></p></div>
+    <div class="carte large"><h3><span id="t-outils">Outils et compétences cités dans les annonces</span> <small>— sur 100 offres d'un même niveau de poste, combien citent le mot ; classé sur la première colonne, plus la case est foncée, plus il est cité</small></h3>
+      <div class="tableau" id="g-outils"></div>
+      <p class="note" id="note-outils"></p><p class="src" id="s-outils"></p></div>
+    <div class="carte large"><h3><span id="t-competences">Les compétences que France Travail associe à ces offres</span> <small id="sous-competences">— les 12 plus fréquentes ; c'est le codage officiel de l'annonce, pas nos mots-clés</small></h3>
+      <div class="zone"><canvas id="g-competences"></canvas></div><p class="src" id="s-competences"></p></div>
   </div>
 
   <footer id="pied"></footer>
 </main>
 
-<script src="assets/commun.js?v=6"></script>
+<script src="assets/commun.js?v=7"></script>
 <script>
 /* ============ Ce qu'on vous demande ============ */
 function rendre(offres, D) {
@@ -46,41 +51,81 @@ function rendre(offres, D) {
   ];
   document.getElementById("chiffres-demande").innerHTML = tuiles2.map(([v, l]) => `<div class="chiffre"><b>${v}</b><span>${l}</span></div>`).join("");
 
-  empilees("g-experience", EXPS, EXPS.map(t => offres.filter(o => trancheExp(o) === t)), false);
-  empilees("g-formation", FORMATIONS, FORMATIONS.map(fo => avecForm.filter(o => o.formation === fo)), false);
-  // Le champ « formation » est rare : on affiche sur combien d'offres ce graphique est construit,
-  // sinon on lit une exigence de diplôme du marché là où il n'y a qu'une poignée d'annonces.
-  document.getElementById("sous-formation").textContent =
-    `— sur les ${avecForm.length} offres qui le précisent (${pct(avecForm.length, n)} % de la sélection), découpées par niveau de poste`;
-
-  // Outils : une barre par outil et par niveau, en % des offres de ce niveau
-  const parNiveau = Object.fromEntries(NIVEAUX.map(([k]) => [k, offres.filter(o => niv(o) === k)]));
-  const niveauxPresents = NIVEAUX.filter(([k]) => parNiveau[k].length > 0);  // pas de série vide
-  const outils = compter(offres.flatMap(o => o.outils || []), x => x).slice(0, 15);
-  dessiner("g-outils", "bar",
-    { labels: outils.map(x => x[0]),
-      datasets: niveauxPresents.map(([k, l]) => ({
-        label: l, backgroundColor: COUL_NIV[k], borderRadius: 3,
-        data: outils.map(([nom]) => pct(parNiveau[k].filter(o => (o.outils || []).includes(nom)).length, parNiveau[k].length)),
-      })) },
+  /* ---- Expérience : une ligne par niveau de poste, ramenée à 100 %. La question du lecteur est
+     « à mon niveau, quelle part m'est ouverte ? », pas « combien d'offres par tranche ». ---- */
+  const TRANCHES = [
+    ["Débutant accepté ou moins d'un an", t => t === "Débutant accepté" || t === "Moins d'un an", "#f9b8d8", ENCRE],
+    ["1 à 2 ans", t => t === "1 à 2 ans", "#ee6aab", ENCRE],
+    ["3 à 4 ans", t => t === "3 à 4 ans", "#c2185b", "#fff"],
+    ["5 ans et plus", t => t === "5 ans et plus", "#7a0f45", "#fff"],
+    ["Non précisé", t => t === "Non précisé", "#d9d9de", ENCRE],
+  ];
+  const lignes = NIVEAUX.map(([k, l]) => ({ k, l, lot: offres.filter(o => niv(o) === k) })).filter(x => x.lot.length > 0);
+  const parts = lignes.map(x => TRANCHES.map(([, test]) => 100 * x.lot.filter(o => test(trancheExp(o))).length / x.lot.length));
+  zoneSelonBarres("g-experience", lignes.length, 46, 64);
+  dessiner("g-experience", "bar",
+    { labels: lignes.map(x => [x.l, pluriel(x.lot.length)]),
+      datasets: TRANCHES.map(([nom, , teinte, encre], i) => ({ label: nom, backgroundColor: teinte, data: parts.map(p => p[i]),
+        borderColor: "#fff", borderWidth: { left: 0, right: 1, top: 0, bottom: 0 }, barPercentage: .78, encre })) },
     { indexAxis: "y",
-      plugins: { legend: { display: true, position: "top", labels: { boxWidth: 12, boxHeight: 12, padding: 12 } },
-                 tooltip: { callbacks: { label: c => `${c.dataset.label} : ${c.parsed.x} % des offres de ce niveau` } } },
-      scales: { x: { beginAtZero: true, ticks: { callback: v => v + " %" } }, y: { grid: { display: true } } } });
+      plugins: { legend: { display: true, position: "top", align: "start", labels: { boxWidth: 12, boxHeight: 12, padding: 12 } },
+        tooltip: { callbacks: { label: c => `${c.dataset.label} : ${Math.round(c.parsed.x)} % des offres de ce niveau` } },
+        datalabels: { display: c => c.dataset.data[c.dataIndex] >= (ETROIT() ? 14 : 7), color: c => c.dataset.encre, font: { size: 12, weight: 600 }, formatter: v => Math.round(v) + " %" } },
+      scales: { x: { stacked: true, min: 0, max: 100, display: false },
+                y: { stacked: true, grid: { display: false }, border: { display: false }, ticks: { autoSkip: false, color: ENCRE, font: { size: 12 } } } } });
+  // Le titre lit les deux extrémités du graphique : la ligne la plus ouverte aux débutants, la plus fermée.
+  if (lignes.length) {
+    const junior = lignes.findIndex(x => x.k === "assistant"), a = junior >= 0 ? junior : 0;
+    const b = parts.reduce((m, p, i) => p[3] > parts[m][3] ? i : m, 0);
+    titre("t-experience", `${Math.round(parts[a][0])} % des postes « ${lignes[a].l} » sont accessibles sans expérience ou presque`
+      + (b !== a && parts[b][3] >= 30 ? ` ; ${Math.round(parts[b][3])} % des postes « ${lignes[b].l} » exigent 5 ans et plus` : ""));
+  }
+  source("s-experience", offres, "niveau de poste déduit de l'intitulé");
 
-  /* Un employeur qui publie des centaines d'annonces quasi identiques (réseau de franchise,
-     agence d'intérim) déforme tous les graphiques par niveau. On le dit, avec son nom et son
-     poids réel, plutôt que de laisser lire une tendance du marché là où il n'y en a pas. */
-  // Seuil double : au moins 20 annonces ET 5 % de la sélection. Sinon, sur une sélection
-  // étroite, on désignerait un employeur qui a simplement publié six offres.
-  const gros = compter(offres, o => o.entreprise)[0];
-  document.getElementById("note-outils").textContent = (gros && gros[1] >= 20 && gros[1] >= n * 0.05)
-    ? `Un outil cité n'est pas un outil exigé — et attention : ${gros[0]} publie à elle seule ${gros[1]} des ${n} annonces de cette sélection (${pct(gros[1], n)} %), souvent le même texte répété. Décochez « Indépendant » ou « Intérim » dans les filtres pour voir ce que ça change.`
-    : "Lecture : part des offres de chaque niveau qui citent l'outil. Un outil cité n'est pas un outil exigé — il faut lire l'annonce.";
+  /* ---- Formation : peu d'offres la précisent, donc quatre barres simples, sans découpage. ---- */
+  const formes = FORMATIONS.map(fo => [fo, avecForm.filter(o => o.formation === fo).length]).filter(x => x[1] > 0);
+  barres("g-formation", formes.map(x => x[0]), formes.map(x => x[1]),
+    { texte: v => `${pct(v, avecForm.length)} %  (${nombre(v)})`, marge: 96 });
+  const sup = avecForm.filter(o => o.formation === "Bac+3/4" || o.formation === "Bac+5").length;
+  titre("t-formation", avecForm.length
+    ? `${pluriel(avecForm.length)} seulement précise${avecForm.length > 1 ? "nt" : ""} un diplôme (${pct(avecForm.length, n)} % de la sélection) : un Bac+3 ou plus dans ${pct(sup, avecForm.length)} % des cas`
+    : "Aucune offre de cette sélection ne précise de diplôme");
+  source("s-formation", avecForm, "offres qui précisent un niveau de formation");
 
-  const comp = compter(offres.flatMap(o => o.competences || []), x => x).slice(0, 12);
-  zoneSelonBarres("g-competences", comp.length, 62);
-  barres("g-competences", comp.map(x => enLignes(x[0])), comp.map(x => x[1]), true, " offres");
+  /* ---- Outils : tableau coloré, outils en lignes et niveaux en colonnes. Les annonces identiques
+     (même employeur, même intitulé) ne comptent qu'une fois, sinon un seul réseau qui republie
+     le même texte fabrique à lui seul une « tendance ». « Autre » n'est pas un niveau : retiré. ---- */
+  const uniques = sansRepetitions(offres), retirees = offres.length - uniques.length;
+  const cols = NIVEAUX.filter(([k]) => k !== "autre").map(([k, l]) => ({ k, l, lot: uniques.filter(o => niv(o) === k) })).filter(c => c.lot.length > 0);
+  const part = (c, nom) => pct(c.lot.filter(o => (o.outils || []).includes(nom)).length, c.lot.length);
+  const outils = compter(uniques.flatMap(o => o.outils || []), x => x).slice(0, 15).map(x => x[0]);
+  const grille = outils.map(nom => ({ nom, v: cols.map(c => part(c, nom)) })).sort((a, b) => cols.length ? b.v[0] - a.v[0] : 0);
+  const maxi = Math.max(1, ...grille.flatMap(g => g.v));
+  const caseHtml = v => { const a = v / maxi; return `<td style="background:rgba(224,25,125,${(a * .92).toFixed(2)});color:${a > .55 ? "#fff" : ENCRE}">${v} %</td>`; };
+  document.getElementById("g-outils").innerHTML = cols.length && grille.length
+    ? `<table class="chaleur"><thead><tr><td style="background:none"></td>${cols.map(c => `<th scope="col">${c.l}<small>${pluriel(c.lot.length)}</small></th>`).join("")}</tr></thead>
+       <tbody>${grille.map(g => `<tr><th scope="row">${g.nom}</th>${g.v.map(caseHtml).join("")}</tr>`).join("")}</tbody></table>`
+    : `<p class="note">Aucun outil cité dans cette sélection.</p>`;
+  if (cols.length && grille.length) {
+    const autres = grille.slice(1).map(g => g.v[0]), suivant = autres.length ? Math.max(...autres) : null;
+    titre("t-outils", `Pour un poste « ${cols[0].l} », « ${grille[0].nom} » est cité dans ${grille[0].v[0]} % des annonces`
+      + (suivant != null && suivant < grille[0].v[0] ? ` ; aucun autre mot ne dépasse ${suivant} %` : ""));
+  }
+  document.getElementById("note-outils").textContent =
+    "Lecture : part des annonces de chaque niveau qui citent le mot (notre grille de mots-clés, scripts/resumer.py). Un outil cité n'est pas un outil exigé — il faut lire l'annonce."
+    + (retirees > 0 ? ` ${pluriel(retirees, "annonce")} identique${retirees > 1 ? "s" : ""} (même employeur, même intitulé) ${retirees > 1 ? "ont été comptées" : "a été comptée"} une seule fois.` : "");
+  source("s-outils", uniques.filter(o => niv(o) !== "autre"), "annonces identiques comptées une fois, niveau « Autre » exclu");
+
+  /* ---- Compétences : en part des offres qui portent ce codage, pour voir ce que pèse la première. ---- */
+  const codees = offres.filter(o => (o.competences || []).length);
+  const comp = compter(codees.flatMap(o => o.competences), x => x).slice(0, 12);
+  barres("g-competences", comp.map(x => ETROIT() ? enLignes(x[0], 24) : x[0]), comp.map(x => x[1]),
+    { texte: v => `${pct(v, codees.length)} %  (${nombre(v)})`, marge: 96 });
+  document.getElementById("sous-competences").textContent = `— les 12 plus fréquentes, en part des ${pluriel(codees.length)} qui portent ce codage (${pct(codees.length, n)} % de la sélection) ; c'est le codage officiel de l'annonce, pas nos mots-clés`;
+  if (comp.length) { const p1 = pct(comp[0][1], codees.length);
+    titre("t-competences", p1 < 15 ? `Aucune compétence officielle ne concerne plus de ${p1} % des offres : le codage est très dispersé`
+      : `« ${comp[0][0]} » est la compétence la plus codée : ${p1} % des offres qui en portent`); }
+  source("s-competences", codees, "offres portant un codage de compétences");
 }
 
 Commun.demarrer(rendre);
